@@ -189,6 +189,26 @@ def run_bayesopt_experiment(bayesopt_config):
 
     current_best_history.append(y.min().item())
 
+    if acq == 'PBGI-D':
+        return (config_id_history, 
+                current_best_history,
+                acq_history, 
+                PBGI_1e_5_acq_history, 
+                PBGI_5e_6_acq_history,
+                PBGI_1e_6_acq_history, 
+                LogEIC_acq_history,
+                regret_upper_bound_history,
+                lmbda_history)
+    else:
+        return (config_id_history, 
+                current_best_history,
+                acq_history,
+                PBGI_1e_5_acq_history, 
+                PBGI_5e_6_acq_history,
+                PBGI_1e_6_acq_history, 
+                LogEIC_acq_history,
+                regret_upper_bound_history)
+
 wandb.init()
 if wandb.config["acquisition_function"] == "PBGI-D":
     (cost_history, config_id_history, current_best_history, acq_history, PBGI_1e_5_acq_history, PBGI_5e_6_acq_history, PBGI_1e_6_acq_history, LogEIC_acq_history, regret_upper_bound_history, lmbda_history) = run_bayesopt_experiment(wandb.config)

@@ -157,7 +157,7 @@ def run_bayesopt_experiment(bayesopt_config):
             new_config_id = torch.argmin(LCB_acq)
             new_config_acq = torch.min(LCB_acq)
         if acq == "PBGI-D":
-            PBGI_D = GittinsIndex(model=model, maximize=maximize, lmbda=cur_lmbda, unknown_cost=True)
+            PBGI_D = GittinsIndex(model=model, maximize=maximize, lmbda=cur_lmbda)
             PBGI_D_acq = PBGI_D.forward(all_x.unsqueeze(1))
             new_config_id = torch.argmin(PBGI_D_acq)
             new_config_acq = torch.min(PBGI_D_acq)
@@ -179,7 +179,7 @@ def run_bayesopt_experiment(bayesopt_config):
 
     current_best_history.append(y.min().item())
 
-    if bayesopt_config["acq"] == 'PBGI-D':
+    if acq == 'PBGI-D':
         return (config_id_history, 
                 current_best_history,
                 acq_history, 
