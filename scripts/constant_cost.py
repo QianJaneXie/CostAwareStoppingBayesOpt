@@ -200,12 +200,12 @@ def run_bayesopt_experiment(bayesopt_config):
                 regret_upper_bound_history)
 
 wandb.init()
-if wandb.config["acq"] == "PBGI-D":
+if wandb.config["acquisition_function"] == "PBGI-D":
     (config_id_history, current_best_history, acq_history, PBGI_5e_3_acq_history, PBGI_1e_3_acq_history, PBGI_5e_4_acq_history, LogEI_acq_history, regret_upper_bound_history, lmbda_history) = run_bayesopt_experiment(wandb.config)
-    for iter, config_id, current_best, acq, PBGI_5e_3_acq, PBGI_1e_3_acq, PBGI_5e_4_acq, LogEI_acq, regret_upper_bound, lmbda in zip(range(wandb.config["n_iter"]), config_id_history, current_best_history, PBGI_5e_3_acq_history, PBGI_1e_3_acq_history, LogEI_acq_history, regret_upper_bound_history, lmbda_history):
+    for iter, config_id, current_best, acq, PBGI_5e_3_acq, PBGI_1e_3_acq, PBGI_5e_4_acq, LogEI_acq, regret_upper_bound, lmbda in zip(range(wandb.config["num_iteration"]), config_id_history, current_best_history, PBGI_5e_3_acq_history, PBGI_1e_3_acq_history, LogEI_acq_history, regret_upper_bound_history, lmbda_history):
         wandb.log({"iteration": iter, "config id": config_id, "current best observed": current_best, "acq": acq, "PBGI(5e-3) acq": PBGI_5e_3_acq, "PBGI(1e-3) acq": PBGI_1e_3_acq, "PBGI(5e-4) acq": PBGI_5e_4_acq, "LogEI acq": LogEI_acq, "regret upper bound": regret_upper_bound, "lmbda": lmbda})
 else:
     (config_id_history, current_best_history, acq_history, PBGI_5e_3_acq_history, PBGI_1e_3_acq_history, PBGI_5e_4_acq_history, LogEI_acq_history, regret_upper_bound_history) = run_bayesopt_experiment(wandb.config)
-    for iter, config_id, current_best, acq, PBGI_5e_3_acq, PBGI_1e_3_acq, PBGI_5e_4_acq, LogEI_acq, regret_upper_bound in zip(range(wandb.config["n_iter"]), config_id_history, current_best_history, PBGI_5e_3_acq_history, PBGI_1e_3_acq_history, LogEI_acq_history, regret_upper_bound_history):
+    for iter, config_id, current_best, acq, PBGI_5e_3_acq, PBGI_1e_3_acq, PBGI_5e_4_acq, LogEI_acq, regret_upper_bound in zip(range(wandb.config["num_iteration"]), config_id_history, current_best_history, PBGI_5e_3_acq_history, PBGI_1e_3_acq_history, LogEI_acq_history, regret_upper_bound_history):
         wandb.log({"iteration": iter, "config id": config_id, "current best observed": current_best, "acq": acq, "PBGI(5e-3) acq": PBGI_5e_3_acq, "PBGI(1e-3) acq": PBGI_1e_3_acq, "PBGI(5e-4) acq": PBGI_5e_4_acq, "LogEI acq": LogEI_acq, "regret upper bound": regret_upper_bound})
 wandb.finish()

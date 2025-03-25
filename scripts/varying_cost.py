@@ -190,7 +190,7 @@ def run_bayesopt_experiment(bayesopt_config):
     current_best_history.append(y.min().item())
 
 wandb.init()
-if wandb.config["acq"] == "PBGI-D":
+if wandb.config["acquisition_function"] == "PBGI-D":
     (cost_history, config_id_history, current_best_history, acq_history, PBGI_1e_5_acq_history, PBGI_5e_6_acq_history, PBGI_1e_6_acq_history, LogEIC_acq_history, regret_upper_bound_history, lmbda_history) = run_bayesopt_experiment(wandb.config)
     for cum_cost, config_id, current_best, acq, PBGI_1e_5_acq, PBGI_5e_6_acq, PBGI_1e_6_acq, LogEIC_acq, regret_upper_bound, lmbda in zip(np.cumsum(cost_history), config_id_history, current_best_history, PBGI_1e_5_acq_history, PBGI_5e_6_acq_history, PBGI_1e_6_acq_history, LogEIC_acq_history, regret_upper_bound_history, lmbda_history):
         wandb.log({"cumulative cost": cum_cost, "config id": config_id, "current best observed": current_best, "acq": acq, "PBGI(1e-5) acq": PBGI_1e_5_acq, "PBGI(5e-6) acq": PBGI_5e_6_acq, "PBGI(1e-6) acq": PBGI_1e_6_acq, "LogEIC acq": LogEIC_acq, "regret upper bound": regret_upper_bound, "lmbda": lmbda})
