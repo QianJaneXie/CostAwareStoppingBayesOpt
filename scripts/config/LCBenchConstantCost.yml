@@ -13,12 +13,12 @@ parameters:
   dim:
     value: 7
   num_iteration:
-    value: 400
+    value: 200
   acquisition_function:
     values:
       - 'PBGI-D'
-      - 'PBGI(5e-3)'
       - 'PBGI(1e-3)'
       - 'PBGI(5e-4)'
+      - 'PBGI(1e-4)'
       - 'LogEI'
       - 'LCB'

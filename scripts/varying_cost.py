@@ -107,9 +107,9 @@ def run_bayesopt_experiment(bayesopt_config):
     acq_history = [np.nan]
     current_best_history = []
     cost_history = [0]
-    PBGI_1e_5_acq_history = [np.nan]
     PBGI_5e_6_acq_history = [np.nan]
     PBGI_1e_6_acq_history = [np.nan]
+    PBGI_5e_7_acq_history = [np.nan]
     LogEIC_acq_history = [np.nan]
     regret_upper_bound_history = [np.nan]
     if acq == "PBGI-D":
@@ -124,9 +124,9 @@ def run_bayesopt_experiment(bayesopt_config):
         best_f = y.min()
         
         # 3. Define the acquisition function.
-        PBGI_1e_5 = GittinsIndex(model=model, maximize=maximize, lmbda=1e-5, unknown_cost=True)
         PBGI_5e_6 = GittinsIndex(model=model, maximize=maximize, lmbda=5e-6, unknown_cost=True)
         PBGI_1e_6 = GittinsIndex(model=model, maximize=maximize, lmbda=1e-6, unknown_cost=True)
+        PBGI_5e_7 = GittinsIndex(model=model, maximize=maximize, lmbda=5e-7, unknown_cost=True)
         LogEIC = LogExpectedImprovementWithCost(model=model, best_f=best_f, maximize=maximize, unknown_cost=True)
         single_outcome_model = fit_gp_model(X=x, objective_X=y, output_standardize=output_standardize)
         UCB = UpperConfidenceBound(model=single_outcome_model, maximize=maximize, beta=2 * np.log(dim * ((i + 1) ** 2) * (math.pi ** 2) / (6 * 0.1)) / 5)
@@ -134,33 +134,40 @@ def run_bayesopt_experiment(bayesopt_config):
 
         # 4. Evaluate the acquisition function on all candidate x's.
         # The unsqueeze operations add extra dimensions if required by your model.
-        PBGI_1e_5_acq = PBGI_1e_5.forward(all_x.unsqueeze(1))
-        PBGI_1e_5_acq[config_id_history] = y.squeeze(-1)
         PBGI_5e_6_acq = PBGI_5e_6.forward(all_x.unsqueeze(1))
         PBGI_5e_6_acq[config_id_history] = y.squeeze(-1)
         PBGI_1e_6_acq = PBGI_1e_6.forward(all_x.unsqueeze(1))
         PBGI_1e_6_acq[config_id_history] = y.squeeze(-1)
+        PBGI_5e_7_acq = PBGI_5e_7.forward(all_x.unsqueeze(1))
+        PBGI_5e_7_acq[config_id_history] = y.squeeze(-1)
         LogEIC_acq = LogEIC.forward(all_x.unsqueeze(1))
         UCB_acq = UCB.forward(all_x.unsqueeze(1))
         LCB_acq = LCB.forward(all_x.unsqueeze(1))
 
         # 5. Record information for stopping.
-        PBGI_1e_5_acq_history.append(torch.min(PBGI_1e_5_acq).item())
         PBGI_5e_6_acq_history.append(torch.min(PBGI_5e_6_acq).item())
         PBGI_1e_6_acq_history.append(torch.min(PBGI_1e_6_acq).item())
+        PBGI_5e_7_acq_history.append(torch.min(PBGI_5e_7_acq).item())
         LogEIC_acq_history.append(torch.max(LogEIC_acq).item())
         regret_upper_bound_history.append(torch.min(UCB_acq).item() - torch.min(LCB_acq).item())
 
         # 6. Select the candidate with the optimal acquisition value.
-        if acq == "PBGI(1e-5)":
-            new_config_id = torch.argmin(PBGI_1e_5_acq)
-            new_config_acq = torch.min(PBGI_1e_5_acq)
+        all_ids = torch.arange(2000)
+        mask = torch.ones(2000, dtype=torch.bool)
+        mask[config_id_history] = False
+        candidate_ids = all_ids[mask]
         if acq == "PBGI(5e-6)":
-            new_config_id = torch.argmin(PBGI_5e_6_acq)
-            new_config_acq = torch.min(PBGI_5e_6_acq)
+            candidate_acqs = PBGI_5e_6_acq[mask]
+            new_config_id = candidate_ids[torch.argmin(candidate_acqs)]
+            new_config_acq = torch.min(candidate_acqs)
         if acq == "PBGI(1e-6)":
-            new_config_id = torch.argmin(PBGI_1e_6_acq)
-            new_config_acq = torch.min(PBGI_1e_6_acq)
+            candidate_acqs = PBGI_1e_6_acq[mask]
+            new_config_id = candidate_ids[torch.argmin(candidate_acqs)]
+            new_config_acq = torch.min(candidate_acqs)
+        if acq == "PBGI(5e-7)":
+            candidate_acqs = PBGI_5e_7_acq[mask]
+            new_config_id = candidate_ids[torch.argmin(candidate_acqs)]
+            new_config_acq = torch.min(candidate_acqs)
         if acq == "LogEIC":
             new_config_id = torch.argmax(LogEIC_acq)
             new_config_acq = torch.max(LogEIC_acq)
@@ -203,32 +210,34 @@ def run_bayesopt_experiment(bayesopt_config):
     current_best_history.append(y.min().item())
 
     if acq == 'PBGI-D':
-        return (config_id_history, 
+        return (cost_history,
+                config_id_history, 
                 current_best_history,
                 acq_history, 
-                PBGI_1e_5_acq_history, 
                 PBGI_5e_6_acq_history,
-                PBGI_1e_6_acq_history, 
+                PBGI_1e_6_acq_history,
+                PBGI_5e_7_acq_history,  
                 LogEIC_acq_history,
                 regret_upper_bound_history,
                 lmbda_history)
     else:
-        return (config_id_history, 
+        return (cost_history,
+                config_id_history, 
                 current_best_history,
                 acq_history,
-                PBGI_1e_5_acq_history, 
                 PBGI_5e_6_acq_history,
                 PBGI_1e_6_acq_history, 
+                PBGI_5e_7_acq_history, 
                 LogEIC_acq_history,
                 regret_upper_bound_history)
 
 wandb.init()
 if wandb.config["acquisition_function"] == "PBGI-D":
-    (cost_history, config_id_history, current_best_history, acq_history, PBGI_1e_5_acq_history, PBGI_5e_6_acq_history, PBGI_1e_6_acq_history, LogEIC_acq_history, regret_upper_bound_history, lmbda_history) = run_bayesopt_experiment(wandb.config)
-    for cum_cost, config_id, current_best, acq, PBGI_1e_5_acq, PBGI_5e_6_acq, PBGI_1e_6_acq, LogEIC_acq, regret_upper_bound, lmbda in zip(np.cumsum(cost_history), config_id_history, current_best_history, acq_history, PBGI_1e_5_acq_history, PBGI_5e_6_acq_history, PBGI_1e_6_acq_history, LogEIC_acq_history, regret_upper_bound_history, lmbda_history):
-        wandb.log({"cumulative cost": cum_cost, "config id": config_id, "current best observed": current_best, "acq": acq, "PBGI(1e-5) acq": PBGI_1e_5_acq, "PBGI(5e-6) acq": PBGI_5e_6_acq, "PBGI(1e-6) acq": PBGI_1e_6_acq, "LogEIC acq": LogEIC_acq, "regret upper bound": regret_upper_bound, "lmbda": lmbda})
+    (cost_history, config_id_history, current_best_history, acq_history, PBGI_5e_6_acq_history, PBGI_1e_6_acq_history, PBGI_5e_7_acq_history, LogEIC_acq_history, regret_upper_bound_history, lmbda_history) = run_bayesopt_experiment(wandb.config)
+    for cum_cost, config_id, current_best, acq, PBGI_5e_6_acq, PBGI_1e_6_acq, PBGI_5e_7_acq, LogEIC_acq, regret_upper_bound, lmbda in zip(np.cumsum(cost_history), config_id_history, current_best_history, acq_history, PBGI_5e_6_acq_history, PBGI_1e_6_acq_history, PBGI_5e_7_acq_history, LogEIC_acq_history, regret_upper_bound_history, lmbda_history):
+        wandb.log({"cumulative cost": cum_cost, "config id": config_id, "current best observed": current_best, "acq": acq, "PBGI(5e-6) acq": PBGI_5e_6_acq, "PBGI(1e-6) acq": PBGI_1e_6_acq, "PBGI(5e-7) acq": PBGI_5e_7_acq, "LogEIC acq": LogEIC_acq, "regret upper bound": regret_upper_bound, "lmbda": lmbda})
 else:
-    (cost_history, config_id_history, current_best_history, acq_history, PBGI_1e_5_acq_history, PBGI_5e_6_acq_history, PBGI_1e_6_acq_history, LogEIC_acq_history, regret_upper_bound_history) = run_bayesopt_experiment(wandb.config)
-    for cum_cost, config_id, current_best, acq, PBGI_1e_5_acq, PBGI_5e_6_acq, PBGI_1e_6_acq, LogEIC_acq, regret_upper_bound in zip(np.cumsum(cost_history), config_id_history, current_best_history, acq_history, PBGI_1e_5_acq_history, PBGI_5e_6_acq_history, PBGI_1e_6_acq_history, LogEIC_acq_history, regret_upper_bound_history):
-        wandb.log({"cumulative cost": cum_cost, "config id": config_id, "current best observed": current_best, "acq": acq, "PBGI(1e-5) acq": PBGI_1e_5_acq, "PBGI(5e-6) acq": PBGI_5e_6_acq, "PBGI(1e-6) acq": PBGI_1e_6_acq, "LogEIC acq": LogEIC_acq, "regret upper bound": regret_upper_bound})
+    (cost_history, config_id_history, current_best_history, acq_history, PBGI_5e_6_acq_history, PBGI_1e_6_acq_history, PBGI_5e_7_acq_history, LogEIC_acq_history, regret_upper_bound_history) = run_bayesopt_experiment(wandb.config)
+    for cum_cost, config_id, current_best, acq, PBGI_5e_6_acq, PBGI_1e_6_acq, PBGI_5e_7_acq, LogEIC_acq, regret_upper_bound in zip(np.cumsum(cost_history), config_id_history, current_best_history, acq_history, PBGI_5e_6_acq_history, PBGI_1e_6_acq_history, PBGI_5e_7_acq_history, LogEIC_acq_history, regret_upper_bound_history):
+        wandb.log({"cumulative cost": cum_cost, "config id": config_id, "current best observed": current_best, "acq": acq, "PBGI(5e-6) acq": PBGI_5e_6_acq, "PBGI(1e-6) acq": PBGI_1e_6_acq, "PBGI(5e-7) acq": PBGI_5e_7_acq, "LogEIC acq": LogEIC_acq, "regret upper bound": regret_upper_bound})
 wandb.finish()
