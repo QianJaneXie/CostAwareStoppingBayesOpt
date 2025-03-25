@@ -72,6 +72,7 @@ def normalize_config(config):
     return normalized_vector
 
 def run_bayesopt_experiment(bayesopt_config):
+    print(bayesopt_config)
     dataset_name = bayesopt_config['dataset_name']
     seed = bayesopt_config['seed']
     output_standardize = bayesopt_config['output_standardize']
@@ -127,8 +128,11 @@ def run_bayesopt_experiment(bayesopt_config):
         # 4. Evaluate the acquisition function on all candidate x's.
         # The unsqueeze operations add extra dimensions if required by your model.
         PBGI_5e_3_acq = PBGI_5e_3.forward(all_x.unsqueeze(1))
+        PBGI_5e_3_acq[config_id_history] = y.squeeze(-1)
         PBGI_1e_3_acq = PBGI_1e_3.forward(all_x.unsqueeze(1))
+        PBGI_1e_3_acq[config_id_history] = y.squeeze(-1)
         PBGI_5e_4_acq = PBGI_5e_4.forward(all_x.unsqueeze(1))
+        PBGI_5e_4_acq[config_id_history] = y.squeeze(-1)
         LogEI_acq = LogEI.forward(all_x.unsqueeze(1))
         UCB_acq = UCB.forward(all_x.unsqueeze(1))
         LCB_acq = LCB.forward(all_x.unsqueeze(1))
@@ -140,7 +144,7 @@ def run_bayesopt_experiment(bayesopt_config):
         LogEI_acq_history.append(torch.max(LogEI_acq).item())
         regret_upper_bound_history.append(torch.min(UCB_acq).item() - torch.min(LCB_acq).item())
 
-        # 6. Select the candidate with the lowest acquisition value.
+        # 6. Select the candidate with the optimal acquisition value.
         if acq == "PBGI(5e-3)":
             new_config_id = torch.argmin(PBGI_5e_3_acq)
             new_config_acq = torch.min(PBGI_5e_3_acq)
@@ -159,10 +163,11 @@ def run_bayesopt_experiment(bayesopt_config):
         if acq == "PBGI-D":
             PBGI_D = GittinsIndex(model=model, maximize=maximize, lmbda=cur_lmbda)
             PBGI_D_acq = PBGI_D.forward(all_x.unsqueeze(1))
+            PBGI_D_acq[config_id_history] = y.squeeze(-1)
             new_config_id = torch.argmin(PBGI_D_acq)
             new_config_acq = torch.min(PBGI_D_acq)
-            if new_config_acq > best_f:
-                cur_lmbda = cur_lmbda / 2
+            if new_config_acq >= best_f:
+                cur_lmbda = cur_lmbda / 10
             lmbda_history.append(cur_lmbda)
 
         new_config_x = all_x[new_config_id]
@@ -176,6 +181,13 @@ def run_bayesopt_experiment(bayesopt_config):
         config_id_history.append(new_config_id.item())
         acq_history.append(new_config_acq.item())
         current_best_history.append(best_f.item())
+
+        print(f"Iteration {i + 1}:")
+        print(f"  Selected config_id: {new_config_id}")
+        print(f"  Acquisition value: {new_config_acq.item():.4f}")
+        print(f"  Objective (final_val_cross_entropy): {new_config_y.item():.4f}")
+        print(f"  Current best observed: {best_f.item():.4f}")
+        print()
 
     current_best_history.append(y.min().item())
 
@@ -202,10 +214,10 @@ def run_bayesopt_experiment(bayesopt_config):
 wandb.init()
 if wandb.config["acquisition_function"] == "PBGI-D":
     (config_id_history, current_best_history, acq_history, PBGI_5e_3_acq_history, PBGI_1e_3_acq_history, PBGI_5e_4_acq_history, LogEI_acq_history, regret_upper_bound_history, lmbda_history) = run_bayesopt_experiment(wandb.config)
-    for iter, config_id, current_best, acq, PBGI_5e_3_acq, PBGI_1e_3_acq, PBGI_5e_4_acq, LogEI_acq, regret_upper_bound, lmbda in zip(range(wandb.config["num_iteration"]), config_id_history, current_best_history, PBGI_5e_3_acq_history, PBGI_1e_3_acq_history, LogEI_acq_history, regret_upper_bound_history, lmbda_history):
+    for iter, config_id, current_best, acq, PBGI_5e_3_acq, PBGI_1e_3_acq, PBGI_5e_4_acq, LogEI_acq, regret_upper_bound, lmbda in zip(range(wandb.config["num_iteration"]), config_id_history, current_best_history, acq_history, PBGI_5e_3_acq_history, PBGI_1e_3_acq_history, PBGI_5e_4_acq_history, LogEI_acq_history, regret_upper_bound_history, lmbda_history):
         wandb.log({"iteration": iter, "config id": config_id, "current best observed": current_best, "acq": acq, "PBGI(5e-3) acq": PBGI_5e_3_acq, "PBGI(1e-3) acq": PBGI_1e_3_acq, "PBGI(5e-4) acq": PBGI_5e_4_acq, "LogEI acq": LogEI_acq, "regret upper bound": regret_upper_bound, "lmbda": lmbda})
 else:
     (config_id_history, current_best_history, acq_history, PBGI_5e_3_acq_history, PBGI_1e_3_acq_history, PBGI_5e_4_acq_history, LogEI_acq_history, regret_upper_bound_history) = run_bayesopt_experiment(wandb.config)
-    for iter, config_id, current_best, acq, PBGI_5e_3_acq, PBGI_1e_3_acq, PBGI_5e_4_acq, LogEI_acq, regret_upper_bound in zip(range(wandb.config["num_iteration"]), config_id_history, current_best_history, PBGI_5e_3_acq_history, PBGI_1e_3_acq_history, LogEI_acq_history, regret_upper_bound_history):
+    for iter, config_id, current_best, acq, PBGI_5e_3_acq, PBGI_1e_3_acq, PBGI_5e_4_acq, LogEI_acq, regret_upper_bound in zip(range(wandb.config["num_iteration"]), config_id_history, current_best_history, acq_history, PBGI_5e_3_acq_history, PBGI_1e_3_acq_history, PBGI_5e_4_acq_history, LogEI_acq_history, regret_upper_bound_history):
         wandb.log({"iteration": iter, "config id": config_id, "current best observed": current_best, "acq": acq, "PBGI(5e-3) acq": PBGI_5e_3_acq, "PBGI(1e-3) acq": PBGI_1e_3_acq, "PBGI(5e-4) acq": PBGI_5e_4_acq, "LogEI acq": LogEI_acq, "regret upper bound": regret_upper_bound})
 wandb.finish()
