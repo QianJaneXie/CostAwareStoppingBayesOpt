@@ -61,8 +61,8 @@ class LogExpectedImprovementWithCost(AnalyticAcquisitionFunction):
             if not self.maximize:
                 u = -u
             log_ei = _log_ei_helper(u) + std_obj.log()  # (b) x 1
-            log_c = self.cost_exponent * means[..., 1]
-            log_ei_puc = log_ei - log_c  # (b) x 1
+            log_mgf = -(self.cost_exponent * means[..., 1]) + 0.5 * (torch.square(self.cost_exponent) * vars[..., 1])
+            log_ei_puc = log_ei + log_mgf  # (b) x 1
             return log_ei_puc.squeeze(dim=-1)
         else:
             # Handling the known cost scenario
