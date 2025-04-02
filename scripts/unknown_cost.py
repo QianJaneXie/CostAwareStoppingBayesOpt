@@ -102,18 +102,17 @@ def run_bayesopt_experiment(bayesopt_config):
     x = all_x[init_config_id]
     y = all_y[init_config_id]
     c = all_c[init_config_id]
-    acq_history = [np.nan]
     best_y_history = [y.min().item()]
     best_id_history = [config_id_history[y.argmin().item()]]
     cost_history = [0]
-    StablePBGI_5e_6_acq_history = [np.nan]
+    StablePBGI_1e_5_acq_history = [np.nan]
+    # StablePBGI_3e_6_acq_history = [np.nan]
     StablePBGI_1e_6_acq_history = [np.nan]
-    StablePBGI_5e_7_acq_history = [np.nan]
-    LogEIC_acq_history = [np.nan]
+    # StablePBGI_3e_7_acq_history = [np.nan]
+    StablePBGI_1e_7_acq_history = [np.nan]
+    LogEIC_inv_acq_history = [np.nan]
+    LogEIC_exp_acq_history = [np.nan]
     regret_upper_bound_history = [np.nan]
-    if acq == "StablePBGI-D":
-        cur_lmbda = 0.001
-        lmbda_history = [cur_lmbda]
 
     for i in range(n_iter):
         # 1. Fit a GP model on the current data.
@@ -123,68 +122,81 @@ def run_bayesopt_experiment(bayesopt_config):
         best_f = y.min()
             
         # 3. Define the acquisition function.
-        StablePBGI_5e_6 = StableGittinsIndex(model=model, maximize=maximize, lmbda=5e-6, unknown_cost=True)
+        StablePBGI_1e_5 = StableGittinsIndex(model=model, maximize=maximize, lmbda=1e-5, unknown_cost=True)
+        # StablePBGI_3e_6 = StableGittinsIndex(model=model, maximize=maximize, lmbda=3e-6, unknown_cost=True)
         StablePBGI_1e_6 = StableGittinsIndex(model=model, maximize=maximize, lmbda=1e-6, unknown_cost=True)
-        StablePBGI_5e_7 = StableGittinsIndex(model=model, maximize=maximize, lmbda=5e-7, unknown_cost=True)
-        LogEIC = LogExpectedImprovementWithCost(model=model, best_f=best_f, maximize=maximize, unknown_cost=True)
+        # StablePBGI_3e_7 = StableGittinsIndex(model=model, maximize=maximize, lmbda=3e-7, unknown_cost=True)
+        StablePBGI_1e_7 = StableGittinsIndex(model=model, maximize=maximize, lmbda=1e-7, unknown_cost=True)
+        LogEIC_inv = LogExpectedImprovementWithCost(model=model, best_f=best_f, maximize=maximize, unknown_cost=True, inverse_cost=True)
+        LogEIC_exp = LogExpectedImprovementWithCost(model=model, best_f=best_f, maximize=maximize, unknown_cost=True, inverse_cost=False)
         single_outcome_model = fit_gp_model(X=x, objective_X=y, output_standardize=output_standardize)
         UCB = UpperConfidenceBound(model=single_outcome_model, maximize=maximize, beta=2 * np.log(dim * ((i + 1) ** 2) * (math.pi ** 2) / (6 * 0.1)) / 5)
         LCB = LowerConfidenceBound(model=single_outcome_model, maximize=maximize, beta=2 * np.log(dim * ((i + 1) ** 2) * (math.pi ** 2) / (6 * 0.1)) / 5)
 
         # 4. Evaluate the acquisition function on all candidate x's.
         # The unsqueeze operations add extra dimensions if required by your model.
-        StablePBGI_5e_6_acq = StablePBGI_5e_6.forward(all_x.unsqueeze(1))
-        StablePBGI_5e_6_acq[config_id_history] = y.squeeze(-1)
+
+        StablePBGI_1e_5_acq = StablePBGI_1e_5.forward(all_x.unsqueeze(1))
+        # StablePBGI_3e_6_acq = StablePBGI_3e_6.forward(all_x.unsqueeze(1))
         StablePBGI_1e_6_acq = StablePBGI_1e_6.forward(all_x.unsqueeze(1))
         StablePBGI_1e_6_acq[config_id_history] = y.squeeze(-1)
-        StablePBGI_5e_7_acq = StablePBGI_5e_7.forward(all_x.unsqueeze(1))
-        StablePBGI_5e_7_acq[config_id_history] = y.squeeze(-1)
-        LogEIC_acq = LogEIC.forward(all_x.unsqueeze(1))
+        # StablePBGI_3e_7_acq = StablePBGI_3e_7.forward(all_x.unsqueeze(1))
+        StablePBGI_1e_7_acq = StablePBGI_1e_7.forward(all_x.unsqueeze(1))
+        LogEIC_inv_acq = LogEIC_inv.forward(all_x.unsqueeze(1))
+        LogEIC_exp_acq = LogEIC_exp.forward(all_x.unsqueeze(1))
         UCB_acq = UCB.forward(all_x.unsqueeze(1))
         LCB_acq = LCB.forward(all_x.unsqueeze(1))
 
         # 5. Record information for stopping.
-        StablePBGI_5e_6_acq_history.append(torch.min(StablePBGI_5e_6_acq).item())
-        StablePBGI_1e_6_acq_history.append(torch.min(StablePBGI_1e_6_acq).item())
-        StablePBGI_5e_7_acq_history.append(torch.min(StablePBGI_5e_7_acq).item())
-        LogEIC_acq_history.append(torch.max(LogEIC_acq).item())
-        regret_upper_bound_history.append(torch.min(UCB_acq).item() - torch.min(LCB_acq).item())
-
-        # 6. Select the candidate with the optimal acquisition value.
         num_configs = 2000
         all_ids = torch.arange(num_configs)
         mask = torch.ones(num_configs, dtype=torch.bool)
         mask[config_id_history] = False
+
+        StablePBGI_1e_5_acq_history.append(torch.min(StablePBGI_1e_5_acq[mask]).item())
+        # StablePBGI_3e_6_acq_history.append(torch.min(StablePBGI_3e_6_acq[mask]).item())
+        StablePBGI_1e_6_acq_history.append(torch.min(StablePBGI_1e_6_acq[mask]).item())
+        # StablePBGI_3e_7_acq_history.append(torch.min(StablePBGI_3e_7_acq[mask]).item())
+        StablePBGI_1e_7_acq_history.append(torch.min(StablePBGI_1e_7_acq[mask]).item())
+        LogEIC_inv_acq_history.append(torch.max(LogEIC_inv_acq[mask]).item())
+        LogEIC_exp_acq_history.append(torch.max(LogEIC_exp_acq[mask]).item())
+        regret_upper_bound_history.append(torch.min(UCB_acq).item() - torch.min(LCB_acq).item())
+
+        # 6. Select the candidate with the optimal acquisition value.
         candidate_ids = all_ids[mask]
-        if acq == "StablePBGI(5e-6)":
-            candidate_acqs = StablePBGI_5e_6_acq[mask]
+        
+        if acq == "StablePBGI(1e-5)":
+            candidate_acqs = StablePBGI_1e_5_acq[mask]
             new_config_id = candidate_ids[torch.argmin(candidate_acqs)]
             new_config_acq = torch.min(candidate_acqs)
+        # if acq == "StablePBGI(3e-6)":
+        #     candidate_acqs = StablePBGI_3e_6_acq[mask]
+        #     new_config_id = candidate_ids[torch.argmin(candidate_acqs)]
+        #     new_config_acq = torch.min(candidate_acqs)
         if acq == "StablePBGI(1e-6)":
             candidate_acqs = StablePBGI_1e_6_acq[mask]
             new_config_id = candidate_ids[torch.argmin(candidate_acqs)]
             new_config_acq = torch.min(candidate_acqs)
-        if acq == "StablePBGI(5e-7)":
-            candidate_acqs = StablePBGI_5e_7_acq[mask]
+        # if acq == "StablePBGI(3e-7)":
+        #     candidate_acqs = StablePBGI_3e_7_acq[mask]
+        #     new_config_id = candidate_ids[torch.argmin(candidate_acqs)]
+        #     new_config_acq = torch.min(candidate_acqs)
+        if acq == "StablePBGI(1e-7)":
+            candidate_acqs = StablePBGI_1e_7_acq[mask]
             new_config_id = candidate_ids[torch.argmin(candidate_acqs)]
             new_config_acq = torch.min(candidate_acqs)
-        if acq == "LogEIC":
-            candidate_acqs = LogEIC_acq[mask]
+        if acq == "LogEIC-inv":
+            candidate_acqs = LogEIC_inv_acq[mask]
+            new_config_id = candidate_ids[torch.argmax(candidate_acqs)]
+            new_config_acq = torch.max(candidate_acqs)
+        if acq == "LogEIC-exp":
+            candidate_acqs = LogEIC_exp_acq[mask]
             new_config_id = candidate_ids[torch.argmax(candidate_acqs)]
             new_config_acq = torch.max(candidate_acqs)
         if acq == "LCB":
             candidate_acqs = LCB_acq[mask]
             new_config_id = candidate_ids[torch.argmin(candidate_acqs)]
             new_config_acq = torch.min(candidate_acqs)
-        if acq == "StablePBGI-D":
-            StablePBGI_D = StableGittinsIndex(model=model, maximize=maximize, lmbda=cur_lmbda, unknown_cost=True)
-            StablePBGI_D_acq = StablePBGI_D.forward(all_x.unsqueeze(1))
-            StablePBGI_D_acq[config_id_history] = y.squeeze(-1)
-            new_config_id = torch.argmin(StablePBGI_D_acq)
-            new_config_acq = torch.min(StablePBGI_D_acq)
-            if new_config_acq >= best_f:
-                cur_lmbda = cur_lmbda / 10
-            lmbda_history.append(cur_lmbda)
 
         new_config_x = all_x[new_config_id]
         
@@ -197,7 +209,6 @@ def run_bayesopt_experiment(bayesopt_config):
         y = torch.cat([y, new_config_y.unsqueeze(0)], dim=0)
         c = torch.cat([c, new_config_c.unsqueeze(0)], dim=0)
         config_id_history.append(new_config_id.item())
-        acq_history.append(new_config_acq.item())
         best_y_history.append(best_f.item())
         best_id_history.append(config_id_history[y.argmin().item()])
         cost_history.append(new_config_c.item())
@@ -211,51 +222,40 @@ def run_bayesopt_experiment(bayesopt_config):
         print()
 
         del model, single_outcome_model
-        del StablePBGI_5e_6, StablePBGI_1e_6, StablePBGI_5e_7
-        del LogEIC, UCB, LCB
+        # del StablePBGI_1e_5, StablePBGI_3e_6, StablePBGI_1e_6, StablePBGI_3e_7, StablePBGI_1e_7
+        del StablePBGI_1e_5, StablePBGI_1e_6, StablePBGI_1e_7
+        del LogEIC_inv, LogEIC_exp, UCB, LCB
         gc.collect()
 
 
     best_y_history.append(y.min().item())
 
-    if acq == 'StablePBGI-D':
-        return (cost_history,
-                [best_id_history[0]]+config_id_history[-n_iter:],
-                best_id_history, 
-                best_y_history,
-                acq_history, 
-                StablePBGI_5e_6_acq_history,
-                StablePBGI_1e_6_acq_history,
-                StablePBGI_5e_7_acq_history,  
-                LogEIC_acq_history,
-                regret_upper_bound_history,
-                lmbda_history)
-    else:
-        return (cost_history,
-                [best_id_history[0]]+config_id_history[-n_iter:], 
-                best_id_history,
-                best_y_history,
-                acq_history,
-                StablePBGI_5e_6_acq_history,
-                StablePBGI_1e_6_acq_history, 
-                StablePBGI_5e_7_acq_history, 
-                LogEIC_acq_history,
-                regret_upper_bound_history)
+    return (cost_history,
+            [best_id_history[0]]+config_id_history[-n_iter:], 
+            best_id_history,
+            best_y_history,
+            StablePBGI_1e_5_acq_history, 
+            # StablePBGI_3e_6_acq_history,
+            StablePBGI_1e_6_acq_history, 
+            # StablePBGI_3e_7_acq_history,
+            StablePBGI_1e_7_acq_history, 
+            LogEIC_inv_acq_history,
+            LogEIC_exp_acq_history,
+            regret_upper_bound_history)
 
 wandb.init()
 
 result = run_bayesopt_experiment(wandb.config)
 
-if wandb.config["acquisition_function"] == "StablePBGI-D":
-    (cost_history, config_id_history, best_id_history, best_y_history, acq_history,
-     StablePBGI_5e_6_acq_history, StablePBGI_1e_6_acq_history,
-     StablePBGI_5e_7_acq_history, LogEIC_acq_history,
-     regret_upper_bound_history, lmbda_history) = result
-else:
-    (cost_history, config_id_history, best_id_history, best_y_history, acq_history,
-     StablePBGI_5e_6_acq_history, StablePBGI_1e_6_acq_history,
-     StablePBGI_5e_7_acq_history, LogEIC_acq_history,
-     regret_upper_bound_history) = result
+# (cost_history, config_id_history, best_id_history, best_y_history,
+#     StablePBGI_1e_5_acq_history, StablePBGI_3e_6_acq_history, StablePBGI_1e_6_acq_history,
+#     StablePBGI_3e_7_acq_history, StablePBGI_1e_7_acq_history, LogEIC_inv_acq_history, LogEIC_exp_acq_history,
+#     regret_upper_bound_history) = result
+
+(cost_history, config_id_history, best_id_history, best_y_history,
+    StablePBGI_1e_5_acq_history, StablePBGI_1e_6_acq_history,
+    StablePBGI_1e_7_acq_history, LogEIC_inv_acq_history, LogEIC_exp_acq_history,
+    regret_upper_bound_history) = result
 
 cumulative_costs = np.cumsum(cost_history)
 
@@ -266,15 +266,15 @@ for idx in range(len(cost_history)):
         "cumulative cost": cumulative_costs[idx],
         "current best id": best_id_history[idx],
         "current best observed": best_y_history[idx],
-        "acq": acq_history[idx],
-        "StablePBGI(5e-6) acq": StablePBGI_5e_6_acq_history[idx],
+        "StablePBGI(1e-5) acq": StablePBGI_1e_5_acq_history[idx],
+        # "StablePBGI(3e-6) acq": StablePBGI_3e_6_acq_history[idx],
         "StablePBGI(1e-6) acq": StablePBGI_1e_6_acq_history[idx],
-        "StablePBGI(5e-7) acq": StablePBGI_5e_7_acq_history[idx],
-        "LogEIC acq": LogEIC_acq_history[idx],
+        # "StablePBGI(3e-7) acq": StablePBGI_3e_7_acq_history[idx],
+        "StablePBGI(1e-7) acq": StablePBGI_1e_7_acq_history[idx],
+        "LogEIC-inv acq": LogEIC_inv_acq_history[idx],
+        "LogEIC-exp acq": LogEIC_exp_acq_history[idx],
         "regret upper bound": regret_upper_bound_history[idx],
     }
-    if wandb.config["acquisition_function"] == "StablePBGI-D":
-        log_dict["lmbda"] = lmbda_history[idx]
 
     wandb.log(log_dict)
 
