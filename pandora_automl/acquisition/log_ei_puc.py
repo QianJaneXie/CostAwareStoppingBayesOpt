@@ -27,7 +27,8 @@ class LogExpectedImprovementWithCost(AnalyticAcquisitionFunction):
         maximize: bool = True,
         cost: Optional[Callable] = None,
         cost_exponent: Union[float, Tensor] = 1.0,
-        unknown_cost: bool = False
+        unknown_cost: bool = False,
+        inverse_cost: bool = True
     ):
         r"""Logarithm of Single-outcome/Two-outcome ExpectedImprovementWithCost (analytic).
         Args:
@@ -37,12 +38,15 @@ class LogExpectedImprovementWithCost(AnalyticAcquisitionFunction):
             best_f: Either a scalar or a `b`-dim Tensor (batch mode) representing
                 the best function value observed so far (assumed noiseless).
             maximize: If True, consider the problem a maximization problem.
+            unknown_cost: If True, consider the problem an unknown-cost problem.
+            inverse_cost: If True, consider -lnE[1/c(x)] for the unknown-cost scenario; otherwise, consider lnE[c(x)] for the unknown-cost scenario.
         """
         # use AcquisitionFunction constructor to avoid check for objective
         super(AnalyticAcquisitionFunction, self).__init__(model=model)
         self.maximize = maximize
         self.cost = cost
         self.unknown_cost = unknown_cost
+        self.inverse_cost = inverse_cost
         self.register_buffer("best_f", torch.as_tensor(best_f))
         self.register_buffer("cost_exponent", torch.as_tensor(cost_exponent))
     
@@ -61,8 +65,12 @@ class LogExpectedImprovementWithCost(AnalyticAcquisitionFunction):
             if not self.maximize:
                 u = -u
             log_ei = _log_ei_helper(u) + std_obj.log()  # (b) x 1
-            log_mgf = -(self.cost_exponent * means[..., 1]) + 0.5 * (torch.square(self.cost_exponent) * vars[..., 1])
-            log_ei_puc = log_ei + log_mgf  # (b) x 1
+            if self.inverse_cost:
+                log_mgf = -(self.cost_exponent * means[..., 1]) + 0.5 * (torch.square(self.cost_exponent) * vars[..., 1])
+                log_ei_puc = log_ei + log_mgf  # (b) x 1
+            else:
+                log_mgf = self.cost_exponent * means[..., 1] + 0.5 * (torch.square(self.cost_exponent) * vars[..., 1])
+                log_ei_puc = log_ei - log_mgf  # (b) x 1
             return log_ei_puc.squeeze(dim=-1)
         else:
             # Handling the known cost scenario
