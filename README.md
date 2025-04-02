@@ -1,2 +1,2 @@
-# PandoraAutoML
- Cost-aware Stopping for AutoML Benchmark
+# CostAwareStoppingBayesOpt
+ Cost-aware Stopping for Bayesian Optimization on AutoML Benchmarks
