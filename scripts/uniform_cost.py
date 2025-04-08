@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import math
 from pandora_automl.utils import fit_gp_model
-from pandora_automl.acquisition.gittins import GittinsIndex
+from pandora_automl.acquisition.stable_gittins import StableGittinsIndex
 from botorch.acquisition import LogExpectedImprovement, UpperConfidenceBound
 from pandora_automl.acquisition.lcb import LowerConfidenceBound
 import wandb
@@ -117,9 +117,9 @@ def run_bayesopt_experiment(bayesopt_config):
         best_f = y.min()
         
         # 3. Define the acquisition function.
-        PBGI_1e_3 = GittinsIndex(model=model, maximize=maximize, lmbda=1e-3)
-        PBGI_5e_4 = GittinsIndex(model=model, maximize=maximize, lmbda=5e-4)
-        PBGI_1e_4 = GittinsIndex(model=model, maximize=maximize, lmbda=1e-4)
+        PBGI_1e_3 = StableGittinsIndex(model=model, maximize=maximize, lmbda=1e-3)
+        PBGI_5e_4 = StableGittinsIndex(model=model, maximize=maximize, lmbda=5e-4)
+        PBGI_1e_4 = StableGittinsIndex(model=model, maximize=maximize, lmbda=1e-4)
         LogEI = LogExpectedImprovement(model=model, best_f=best_f, maximize=maximize)
         single_outcome_model = fit_gp_model(X=x, objective_X=y, output_standardize=output_standardize)
         UCB = UpperConfidenceBound(model=single_outcome_model, maximize=maximize, beta=2 * np.log(dim * ((i + 1) ** 2) * (math.pi ** 2) / (6 * 0.1)) / 5)
@@ -162,13 +162,15 @@ def run_bayesopt_experiment(bayesopt_config):
             new_config_id = candidate_ids[torch.argmin(candidate_acqs)]
             new_config_acq = torch.min(candidate_acqs)
         if acq == "LogEI":
-            new_config_id = torch.argmax(LogEI_acq)
-            new_config_acq = torch.max(LogEI_acq)
+            candidate_acqs = LogEI_acq[mask]
+            new_config_id = candidate_ids[torch.argmax(candidate_acqs)]
+            new_config_acq = torch.max(candidate_acqs)
         if acq == "LCB":
-            new_config_id = torch.argmin(LCB_acq)
-            new_config_acq = torch.min(LCB_acq)
+            candidate_acqs = LCB_acq[mask]
+            new_config_id = candidate_ids[torch.argmin(candidate_acqs)]
+            new_config_acq = torch.min(candidate_acqs)
         if acq == "PBGI-D":
-            PBGI_D = GittinsIndex(model=model, maximize=maximize, lmbda=cur_lmbda)
+            PBGI_D = StableGittinsIndex(model=model, maximize=maximize, lmbda=cur_lmbda)
             PBGI_D_acq = PBGI_D.forward(all_x.unsqueeze(1))
             PBGI_D_acq[config_id_history] = y.squeeze(-1)
             new_config_id = torch.argmin(PBGI_D_acq)
