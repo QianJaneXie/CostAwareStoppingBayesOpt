@@ -124,7 +124,7 @@ def run_bayesopt_experiment(bayesopt_config):
         UCB_acq = UCB.forward(all_x.unsqueeze(1))
         LCB_acq = LCB.forward(all_x.unsqueeze(1))
 
-        # 5. Record information for stopping.
+        # 5. Select the candidate with the optimal acquisition value.
         num_configs = 2000
         all_ids = torch.arange(num_configs)
         mask = torch.ones(num_configs, dtype=torch.bool)
