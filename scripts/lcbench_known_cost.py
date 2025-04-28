@@ -118,7 +118,6 @@ def run_bayesopt_experiment(bayesopt_config):
         # 4. Evaluate the acquisition function on all candidate x's.
         StablePBGI_1e_5_acq = StablePBGI_1e_5.forward(all_x.unsqueeze(1))
         StablePBGI_1e_6_acq = StablePBGI_1e_6.forward(all_x.unsqueeze(1))
-        StablePBGI_1e_6_acq[config_id_history] = y.squeeze(-1)
         StablePBGI_1e_7_acq = StablePBGI_1e_7.forward(all_x.unsqueeze(1))
         LogEIC_acq = LogEIC.forward(all_x.unsqueeze(1))
         UCB_acq = UCB.forward(all_x.unsqueeze(1))
