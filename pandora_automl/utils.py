@@ -10,6 +10,7 @@ from gpytorch.mlls import ExactMarginalLogLikelihood
 from gpytorch.likelihoods import FixedNoiseGaussianLikelihood
 from gpytorch.likelihoods.gaussian_likelihood import GaussianLikelihood
 from gpytorch.constraints.constraints import Interval
+import math
 
 def fit_gp_model(
         X: Tensor, 
@@ -19,7 +20,7 @@ def fit_gp_model(
         kernel: Optional[torch.nn.Module] = None,
         gaussian_likelihood: bool = False,
         noisy_observation: bool = False, 
-        noise_level: float = 1e-4,
+        noise_level: float = 1e-6,
         output_standardize: bool = False,
     ):
     # Ensure X is a 2D tensor [num_data, num_features]
@@ -69,6 +70,7 @@ def fit_gp_model(
     return model
 
 
+# LCBench utils
 def normalize_config(config):
     # Convert each value to a torch tensor (ensuring float type for calculations)
     batch = torch.tensor(config["batch_size"])
