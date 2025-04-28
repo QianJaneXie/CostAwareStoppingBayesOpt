@@ -45,6 +45,7 @@ def run_bayesopt_experiment(bayesopt_config):
     maximize = bayesopt_config['maximize']
     dim = bayesopt_config['dim']
     n_iter = bayesopt_config['num_iteration']
+    num_configs = bayesopt_config['num_configs']
     acq = bayesopt_config['acquisition_function']
 
     # Gather all configurations and their corresponding values.
@@ -78,7 +79,7 @@ def run_bayesopt_experiment(bayesopt_config):
 
     # Sample initial configurations
     torch.manual_seed(seed)
-    init_config_id = torch.randint(low=0, high=2000, size=(2*(dim+1),))
+    init_config_id = torch.randint(low=0, high=num_configs, size=(2*(dim+1),))
     config_id_history = init_config_id.tolist()
     print(f"  Initial config id: {config_id_history}")
     x = all_x[init_config_id]
@@ -117,14 +118,16 @@ def run_bayesopt_experiment(bayesopt_config):
 
         # 4. Evaluate the acquisition function on all candidate x's.
         StablePBGI_1e_5_acq = StablePBGI_1e_5.forward(all_x.unsqueeze(1))
+        StablePBGI_1e_5_acq[config_id_history] = y.squeeze(-1)
         StablePBGI_1e_6_acq = StablePBGI_1e_6.forward(all_x.unsqueeze(1))
+        StablePBGI_1e_6_acq[config_id_history] = y.squeeze(-1)
         StablePBGI_1e_7_acq = StablePBGI_1e_7.forward(all_x.unsqueeze(1))
+        StablePBGI_1e_7_acq[config_id_history] = y.squeeze(-1)
         LogEIC_acq = LogEIC.forward(all_x.unsqueeze(1))
         UCB_acq = UCB.forward(all_x.unsqueeze(1))
         LCB_acq = LCB.forward(all_x.unsqueeze(1))
 
         # 5. Select the candidate with the optimal acquisition value.
-        num_configs = 2000
         all_ids = torch.arange(num_configs)
         mask = torch.ones(num_configs, dtype=torch.bool)
         mask[config_id_history] = False
@@ -222,15 +225,16 @@ def run_bayesopt_experiment(bayesopt_config):
         print("exp min regret gap:", exp_min_regret_gap)
         print()
         acq_history['exp min regret gap'].append(exp_min_regret_gap)
+        acq_history['regret upper bound'].append(kappa.item())
 
         # 7.9. Reassign old_model and old_config_x for the next iteration.
         old_model = model
         old_config_x = new_config_x
 
-        acq_history['StablePBGI(1e-5)'].append(torch.min(StablePBGI_1e_5_acq[mask]).item())
-        acq_history['StablePBGI(1e-6)'].append(torch.min(StablePBGI_1e_6_acq[mask]).item())
-        acq_history['StablePBGI(1e-7)'].append(torch.min(StablePBGI_1e_7_acq[mask]).item())
-        acq_history['LogEIC'].append(torch.max(LogEIC_acq[mask]).item())
+        acq_history['StablePBGI(1e-5)'].append(torch.min(StablePBGI_1e_5_acq).item())
+        acq_history['StablePBGI(1e-6)'].append(torch.min(StablePBGI_1e_6_acq).item())
+        acq_history['StablePBGI(1e-7)'].append(torch.min(StablePBGI_1e_7_acq).item())
+        acq_history['LogEIC'].append(torch.max(LogEIC_acq).item())
         
         # 8. Append the new data to our training set.
         x = torch.cat([x, new_config_x.unsqueeze(0)], dim=0)
@@ -283,8 +287,9 @@ for idx in range(len(cost_history)):
         "StablePBGI(1e-7) acq": acq_history['StablePBGI(1e-7)'][idx],
         "LogEIC acq": acq_history['LogEIC'][idx],
         "exp min regret gap": acq_history['exp min regret gap'][idx],
+        "regret upper bound": acq_history['regret upper bound'][idx],
     }
     wandb.log(log_dict)
-    time.sleep(0.5)  # Delay of 10s per entry
+    time.sleep(0.5)  # Delay of 0.5s per entry
 
 wandb.finish()
