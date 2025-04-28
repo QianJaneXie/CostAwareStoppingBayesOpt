@@ -1,5 +1,5 @@
 name: LCBenchUnknownCost
-program: scripts/unknown_cost.py
+program: scripts/lcbench_unknown_cost.py
 method: grid
 parameters:
   dataset_name:
@@ -14,6 +14,8 @@ parameters:
     value: 7
   num_iteration:
     value: 200
+  num_configs:
+    value: 2000
   acquisition_function:
     values:
       - 'StablePBGI(1e-5)'
@@ -23,3 +25,4 @@ parameters:
       - 'StablePBGI(1e-7)'
       - 'LogEIC-inv'
       - 'LogEIC-exp'
+      - 'LCB'
