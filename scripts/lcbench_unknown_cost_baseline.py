@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import math
+from scipy.stats import norm
 from pandora_automl.utils import fit_gp_model, normalize_config
 from pandora_automl.acquisition.stable_gittins import StableGittinsIndex
 from botorch.acquisition import UpperConfidenceBound
@@ -8,6 +9,7 @@ from pandora_automl.acquisition.lcb import LowerConfidenceBound
 from pandora_automl.acquisition.log_ei_puc import LogExpectedImprovementWithCost
 import gc
 import wandb
+import time
 
 # Set default tensor type to float64
 torch.set_default_dtype(torch.float64)
@@ -73,13 +75,11 @@ def run_bayesopt_experiment(bayesopt_config):
     best_id_history = [config_id_history[y.argmin().item()]]
     cost_history = [0]
 
+    old_model = fit_gp_model(X=x[:-1], objective_X=y[:-1], output_standardize=output_standardize)
+    old_config_x = x[-1]
+
     acq_history = {
-        'StablePBGI(1e-5)': [np.nan],
-        'StablePBGI(1e-6)': [np.nan],
-        'StablePBGI(1e-7)': [np.nan],
-        'LogEIC-inv': [np.nan],
-        'LogEIC-exp': [np.nan],
-        'regret upper bound': [np.nan]
+        'exp min regret gap': [np.nan]
     }
 
     for i in range(n_iter):
@@ -96,33 +96,25 @@ def run_bayesopt_experiment(bayesopt_config):
         LogEIC_inv = LogExpectedImprovementWithCost(model=model, best_f=best_f, maximize=maximize, unknown_cost=True, inverse_cost=True)
         LogEIC_exp = LogExpectedImprovementWithCost(model=model, best_f=best_f, maximize=maximize, unknown_cost=True, inverse_cost=False)
         single_outcome_model = fit_gp_model(X=x, objective_X=y, output_standardize=output_standardize)
-        UCB = UpperConfidenceBound(model=single_outcome_model, maximize=maximize, beta=2 * np.log(dim * ((i + 1) ** 2) * (math.pi ** 2) / (6 * 0.1)) / 5)
-        LCB = LowerConfidenceBound(model=single_outcome_model, maximize=maximize, beta=2 * np.log(dim * ((i + 1) ** 2) * (math.pi ** 2) / (6 * 0.1)) / 5)
+        print("sigma:", single_outcome_model.posterior(all_x.unsqueeze(1)).variance.sqrt().squeeze(-1).max().item())
+        beta = 2 * np.log(dim * ((i + 1) ** 2) * (math.pi ** 2) / (6 * 0.1)) / 5
+        UCB = UpperConfidenceBound(model=single_outcome_model, maximize=maximize, beta=beta)
+        LCB = LowerConfidenceBound(model=single_outcome_model, maximize=maximize, beta=beta)
 
         # 4. Evaluate the acquisition function on all candidate x's.
         StablePBGI_1e_5_acq = StablePBGI_1e_5.forward(all_x.unsqueeze(1))
         StablePBGI_1e_6_acq = StablePBGI_1e_6.forward(all_x.unsqueeze(1))
-        StablePBGI_1e_6_acq[config_id_history] = y.squeeze(-1)
         StablePBGI_1e_7_acq = StablePBGI_1e_7.forward(all_x.unsqueeze(1))
         LogEIC_inv_acq = LogEIC_inv.forward(all_x.unsqueeze(1))
         LogEIC_exp_acq = LogEIC_exp.forward(all_x.unsqueeze(1))
         UCB_acq = UCB.forward(all_x.unsqueeze(1))
         LCB_acq = LCB.forward(all_x.unsqueeze(1))
 
-        # 5. Record information for stopping.
+        # 5. Select the candidate with the optimal acquisition value.
         num_configs = 2000
         all_ids = torch.arange(num_configs)
         mask = torch.ones(num_configs, dtype=torch.bool)
         mask[config_id_history] = False
-
-        acq_history['StablePBGI(1e-5)'].append(torch.min(StablePBGI_1e_5_acq[mask]).item())
-        acq_history['StablePBGI(1e-6)'].append(torch.min(StablePBGI_1e_6_acq[mask]).item())
-        acq_history['StablePBGI(1e-7)'].append(torch.min(StablePBGI_1e_7_acq[mask]).item())
-        acq_history['LogEIC-inv'].append(torch.max(LogEIC_inv_acq[mask]).item())
-        acq_history['LogEIC-exp'].append(torch.max(LogEIC_exp_acq[mask]).item())
-        acq_history['regret upper bound'].append(torch.min(UCB_acq[~mask]).item() - torch.min(LCB_acq).item())
-
-        # 6. Select the candidate with the optimal acquisition value.
         candidate_ids = all_ids[mask]
         
         if acq == "StablePBGI(1e-5)":
@@ -152,9 +144,79 @@ def run_bayesopt_experiment(bayesopt_config):
 
         new_config_x = all_x[new_config_id]
         
-        # 7. Query the objective for the new configuration.
+        # 6. Query the objective for the new configuration.
         new_config_y = all_y[new_config_id]
         new_config_c = all_c[new_config_id]
+
+        # 7. Record information for stopping.
+
+        # 7.1. Get the posterior mean for old and new GPs at the new and old best points.
+        # new_config_x and old_config_x should be the configurations corresponding to the current
+        # and previous best indices, respectively.
+        x_pair = torch.stack([new_config_x, old_config_x])
+
+        # 7.2. Get posterior mean and covariance from the new model.
+        new_posterior = single_outcome_model.posterior(x_pair)
+        new_mean = new_posterior.mean         # Shape: [2]
+        new_covar = new_posterior.mvn.covariance_matrix     # Shape: [2, 2]
+
+        # 7.3. Get posterior mean and covariance from the old model.
+        old_posterior = old_model.posterior(x_pair)
+        old_mean = old_posterior.mean           # Shape: [2]
+        old_covar = old_posterior.mvn.covariance_matrix       # Shape: [2, 2]
+
+        # 7.4. Compute delta_mu (the absolute change in best posterior mean)
+        # Here, we assume that new_config_x corresponds to the current best (new point)
+        # and old_config_x corresponds to the previous best.
+        delta_mu = abs(old_mean[1].item() - new_mean[0].item())
+
+        # 7.5. Compute κ_{t−1} = UCB - LCB gap.
+        kappa = torch.min(UCB_acq[~mask]) - torch.min(LCB_acq)
+
+        # 7.6. Compute KL divergence between old and new posteriors at the new point.
+        old_var = old_covar[0, 0].clamp(min=1e-12)
+        new_var = new_covar[0, 0].clamp(min=1e-12)
+        old_mu_val = old_mean[0]
+        new_mu_val = new_mean[0]
+        kl = 0.5 * (torch.log(new_var / old_var) +
+                    (old_var + (old_mu_val - new_mu_val).pow(2)) / new_var - 1).item()
+
+        # 7.7. Compute ei_diff, the expected-improvement gap difference.
+        # If new_config_x and old_config_x are (approximately) equal, we set ei_diff to zero.
+        if not torch.allclose(new_config_x, old_config_x, atol=1e-6):
+            # We use the new model's posterior for these two points.
+            # new_mean and new_covar already contain the predictions.
+            # Compute the difference in means:
+            g = (new_mean[0] - new_mean[1]).item()
+            # Compute the effective variance difference
+            diff_var = (new_covar[0, 0] - 2 * new_covar[0, 1] + new_covar[1, 1]).item()
+            if diff_var < 0:
+                beta_val = 0.0
+                pdf_val = np.sqrt(1.0 / (2 * np.pi))
+                cdf_val = 1.0
+            else:
+                beta_val = np.sqrt(diff_var)
+                u = g / beta_val if beta_val > 0 else 0.0
+                pdf_val = norm.pdf(u)
+                cdf_val = norm.cdf(u)
+            ei_diff = beta_val * pdf_val + g * cdf_val
+        else:
+            ei_diff = 0.0
+
+        print("delta mu:", delta_mu)
+        print("kappa:", kappa.item())
+        print("kl:", kl)
+        print("ei diff:", ei_diff)
+
+        # 7.8. Final expression for ΔR̃_t (the expected minimal regret gap).
+        exp_min_regret_gap = delta_mu + ei_diff + kappa.item() * np.sqrt(0.5 * kl)
+        print("exp min regret gap:", exp_min_regret_gap)
+        print()
+        acq_history['exp min regret gap'].append(exp_min_regret_gap)
+
+        # 7.9. Reassign old_model and old_config_x for the next iteration.
+        old_model = single_outcome_model
+        old_config_x = new_config_x
         
         # 8. Append the new data to our training set.
         x = torch.cat([x, new_config_x.unsqueeze(0)], dim=0)
@@ -173,7 +235,6 @@ def run_bayesopt_experiment(bayesopt_config):
         print(f"  Current best observed: {best_f.item():.4f}")
         print()
 
-        del model, single_outcome_model
         del StablePBGI_1e_5, StablePBGI_1e_6, StablePBGI_1e_7
         del LogEIC_inv, LogEIC_exp, UCB, LCB
         gc.collect()
@@ -187,7 +248,8 @@ def run_bayesopt_experiment(bayesopt_config):
             best_y_history,
             acq_history)
 
-wandb.init()
+
+wandb.init(sync_tensorboard=False, settings=wandb.Settings(_disable_stats=True))
 
 result = run_bayesopt_experiment(wandb.config)
 
@@ -202,13 +264,9 @@ for idx in range(len(cost_history)):
         "cumulative cost": cumulative_costs[idx],
         "current best id": best_id_history[idx],
         "current best observed": best_y_history[idx],
-        "StablePBGI(1e-5) acq": acq_history['StablePBGI(1e-5)'][idx],
-        "StablePBGI(1e-6) acq": acq_history['StablePBGI(1e-6)'][idx],
-        "StablePBGI(1e-7) acq": acq_history['StablePBGI(1e-7)'][idx],
-        "LogEIC-inv acq": acq_history['LogEIC-inv'][idx],
-        "LogEIC-exp acq": acq_history['LogEIC-exp'][idx],
-        "regret upper bound": acq_history['regret upper bound'][idx],
+        "exp min regret gap": acq_history['exp min regret gap'][idx],
     }
     wandb.log(log_dict)
+    time.sleep(1)  # Delay of 1s per entry
 
 wandb.finish()
