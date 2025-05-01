@@ -15,5 +15,5 @@
 source /share/apps/anaconda3/2021.05/etc/profile.d/conda.sh
 conda activate automl_env
 wandb login
-wandb agent 'ziv-scully-group/PandoraBayesOpt/4fxoyssk' --count 1
+wandb agent 'ziv-scully-group/PandoraBayesOpt/r8qk7cxd' --count 1
 conda deactivate
