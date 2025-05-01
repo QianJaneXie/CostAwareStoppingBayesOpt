@@ -75,6 +75,9 @@ def run_bayesopt_experiment(bayesopt_config):
     best_id_history = [config_id_history[y.argmin().item()]]
     cost_history = [0]
 
+    old_model = fit_gp_model(X=x[:-1], objective_X=y[:-1], output_standardize=output_standardize)
+    old_config_x = x[-1]
+
     acq_history = {
         'StablePBGI(1e-5)': [np.nan],
         'StablePBGI(1e-6)': [np.nan],
@@ -158,7 +161,7 @@ def run_bayesopt_experiment(bayesopt_config):
         x_pair = torch.stack([new_config_x, old_config_x])
 
         # 7.2. Get posterior mean and covariance from the new model.
-        new_posterior = model.posterior(x_pair)
+        new_posterior = single_outcome_model.posterior(x_pair)
         new_mean = new_posterior.mean         # Shape: [2]
         new_covar = new_posterior.mvn.covariance_matrix     # Shape: [2, 2]
 
@@ -218,7 +221,7 @@ def run_bayesopt_experiment(bayesopt_config):
         acq_history['regret upper bound'].append(kappa.item())
 
         # 7.9. Reassign old_model and old_config_x for the next iteration.
-        old_model = model
+        old_model = single_outcome_model
         old_config_x = new_config_x
 
         acq_history['StablePBGI(1e-5)'].append(torch.min(StablePBGI_1e_5_acq).item())
