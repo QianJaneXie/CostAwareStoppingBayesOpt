@@ -94,7 +94,7 @@ def run_bayesopt_experiment(bayesopt_config):
     old_config_x = x[-1]
 
     # Initialization for probabilistic regret bound (PRB) stopping rule
-    epsilon = 0.1
+    epsilon = 0.01
     num_samples = 64
 
     acq_history = {
@@ -227,15 +227,8 @@ def run_bayesopt_experiment(bayesopt_config):
         else:
             ei_diff = 0.0
 
-        print("delta mu:", delta_mu)
-        print("kappa:", kappa.item())
-        print("kl:", kl)
-        print("ei diff:", ei_diff)
-
         # 7.8. Final expression for ΔR̃_t (the expected minimal regret gap).
         exp_min_regret_gap = delta_mu + ei_diff + kappa.item() * np.sqrt(0.5 * kl)
-        print("exp min regret gap:", exp_min_regret_gap)
-        print()
         acq_history['exp min regret gap'].append(exp_min_regret_gap)
         acq_history['regret upper bound'].append(kappa.item())
 
@@ -249,7 +242,7 @@ def run_bayesopt_experiment(bayesopt_config):
         regrets = paths(best_x.unsqueeze(0)).squeeze(-1) - paths(all_x).min(dim=1).values
         prb_estimate = (regrets <= epsilon).float().mean().item()
         acq_history['PRB'].append(prb_estimate)
-        num_samples = math.ceil(num_samples * 1.5)
+        num_samples = min(math.ceil(num_samples * 1.5), 1000)
 
         # Other stopping rules
         acq_history['StablePBGI(1e-5)'].append(torch.min(StablePBGI_1e_5_acq).item())
