@@ -7,6 +7,7 @@ from pandora_automl.acquisition.stable_gittins import StableGittinsIndex
 from botorch.acquisition import UpperConfidenceBound
 from pandora_automl.acquisition.lcb import LowerConfidenceBound
 from pandora_automl.acquisition.log_ei_puc import LogExpectedImprovementWithCost
+from botorch.sampling.pathwise import draw_matheron_paths
 import gc
 import wandb
 import time
@@ -53,7 +54,6 @@ def run_bayesopt_experiment(bayesopt_config):
     all_y = []
     all_c = []
     x2id = {}
-    dataset_name = "higgs"
     for config_id in bench.data[dataset_name].keys():
         config = bench.query(dataset_name, "config", config_id)
         x = normalize_config(config)
@@ -89,8 +89,13 @@ def run_bayesopt_experiment(bayesopt_config):
     best_id_history = [config_id_history[y.argmin().item()]]
     cost_history = [0]
 
+    # Initialization for expected minimum simple regret gap stopping rule
     old_model = fit_gp_model(X=x[:-1], objective_X=y[:-1], output_standardize=output_standardize)
     old_config_x = x[-1]
+
+    # Initialization for probabilistic regret bound (PRB) stopping rule
+    epsilon = 0.1
+    num_samples = 64
 
     acq_history = {
         'StablePBGI(1e-5)': [np.nan],
@@ -98,7 +103,8 @@ def run_bayesopt_experiment(bayesopt_config):
         'StablePBGI(1e-7)': [np.nan],
         'LogEIC': [np.nan],
         'regret upper bound': [np.nan],
-        'exp min regret gap': [np.nan]
+        'exp min regret gap': [np.nan],
+        'PRB': [np.nan]
     }
 
     for i in range(n_iter):
@@ -151,6 +157,12 @@ def run_bayesopt_experiment(bayesopt_config):
             new_config_acq = torch.max(candidate_acqs)
         if acq == "LCB":
             candidate_acqs = LCB_acq[mask]
+            new_config_id = candidate_ids[torch.argmin(candidate_acqs)]
+            new_config_acq = torch.min(candidate_acqs)
+        if acq == "TS":
+            sample_path = draw_matheron_paths(model, sample_shape=torch.Size([1]))
+            TS_acq = sample_path(all_x).squeeze()
+            candidate_acqs = TS_acq[mask]
             new_config_id = candidate_ids[torch.argmin(candidate_acqs)]
             new_config_acq = torch.min(candidate_acqs)
 
@@ -231,10 +243,19 @@ def run_bayesopt_experiment(bayesopt_config):
         old_model = model
         old_config_x = new_config_x
 
+        # Probabilistic regret bound
+        paths = draw_matheron_paths(model, sample_shape=torch.Size([num_samples]))
+        best_x = all_x[config_id_history[y.argmin().item()]]
+        regrets = paths(best_x.unsqueeze(0)).squeeze(-1) - paths(all_x).min(dim=1).values
+        prb_estimate = (regrets <= epsilon).float().mean().item()
+        acq_history['PRB'].append(prb_estimate)
+        num_samples = math.ceil(num_samples * 1.5)
+
+        # Other stopping rules
         acq_history['StablePBGI(1e-5)'].append(torch.min(StablePBGI_1e_5_acq).item())
         acq_history['StablePBGI(1e-6)'].append(torch.min(StablePBGI_1e_6_acq).item())
         acq_history['StablePBGI(1e-7)'].append(torch.min(StablePBGI_1e_7_acq).item())
-        acq_history['LogEIC'].append(torch.max(LogEIC_acq).item())
+        acq_history['LogEIC'].append(torch.max(LogEIC_acq[mask]).item())
         
         # 8. Append the new data to our training set.
         x = torch.cat([x, new_config_x.unsqueeze(0)], dim=0)
@@ -288,6 +309,7 @@ for idx in range(len(cost_history)):
         "LogEIC acq": acq_history['LogEIC'][idx],
         "exp min regret gap": acq_history['exp min regret gap'][idx],
         "regret upper bound": acq_history['regret upper bound'][idx],
+        "PRB": acq_history['PRB'][idx]
     }
     wandb.log(log_dict)
     time.sleep(0.5)  # Delay of 0.5s per entry
