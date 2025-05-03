@@ -19,10 +19,9 @@ parameters:
   acquisition_function:
     values:
       - 'StablePBGI(1e-5)'
-      # - 'StablePBGI(3e-6)'
       - 'StablePBGI(1e-6)'
-      # - 'StablePBGI(3e-7)'
       - 'StablePBGI(1e-7)'
       - 'LogEIC-inv'
       - 'LogEIC-exp'
       - 'LCB'
+      - 'TS'
