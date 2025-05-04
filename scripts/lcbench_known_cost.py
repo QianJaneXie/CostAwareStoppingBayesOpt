@@ -94,8 +94,11 @@ def run_bayesopt_experiment(bayesopt_config):
     old_config_x = x[-1]
 
     # Initialization for probabilistic regret bound (PRB) stopping rule
-    epsilon = 0.01
+    epsilon = 0.005
     num_samples = 64
+
+    # Independent seed for Thompson sampling
+    ts_seed  = seed + 1
 
     acq_history = {
         'StablePBGI(1e-5)': [np.nan],
@@ -160,7 +163,10 @@ def run_bayesopt_experiment(bayesopt_config):
             new_config_id = candidate_ids[torch.argmin(candidate_acqs)]
             new_config_acq = torch.min(candidate_acqs)
         if acq == "TS":
+            prev_state = torch.get_rng_state()
+            torch.manual_seed(ts_seed)
             sample_path = draw_matheron_paths(model, sample_shape=torch.Size([1]))
+            torch.set_rng_state(prev_state)
             TS_acq = sample_path(all_x).squeeze()
             candidate_acqs = TS_acq[mask]
             new_config_id = candidate_ids[torch.argmin(candidate_acqs)]
