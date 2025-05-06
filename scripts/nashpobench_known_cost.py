@@ -25,7 +25,7 @@ def run_bayesopt_experiment(bayesopt_config):
     n_iter = bayesopt_config['num_iteration']
     num_configs = bayesopt_config['num_configs']
     acq = bayesopt_config['acquisition_function']
-    num_batches = 32
+    num_batches = 8
     batch_size = num_configs // num_batches
 
     # Load benchmark data
@@ -46,6 +46,7 @@ def run_bayesopt_experiment(bayesopt_config):
     best_y_history = [y.max().item()]
     best_id_history = [config_id_history[y.argmax().item()]]
     cost_history = [0]
+    estimated_cost_history = [0]
 
     # Initialization for expected minimum simple regret gap stopping rule
     old_model = fit_gp_model(X=x[:-1], objective_X=y[:-1], output_standardize=output_standardize)
@@ -142,6 +143,7 @@ def run_bayesopt_experiment(bayesopt_config):
         # 6. Query the objective for the new configuration.
         new_config_y = all_y[new_config_id]
         new_config_c = all_c[new_config_id]
+        new_config_estimated_c = estimated_costs[new_config_id]
 
         # 7. Record information for stopping.
 
@@ -221,6 +223,7 @@ def run_bayesopt_experiment(bayesopt_config):
         best_y_history.append(best_f.item())
         best_id_history.append(config_id_history[y.argmax().item()])
         cost_history.append(new_config_c.item())
+        estimated_cost_history.append(new_config_estimated_c.item())
 
         print(f"Iteration {i + 1}:")
         print(f"  Selected config_id: {new_config_id}")
@@ -238,25 +241,28 @@ def run_bayesopt_experiment(bayesopt_config):
 
     # Return the history including the acq_history dictionary.
     return (cost_history,
+            estimated_cost_history,
             [best_id_history[0]] + config_id_history[-n_iter:], 
             best_id_history,
             best_y_history,
             acq_history)
 
 
-wandb.init(reinit=True, sync_tensorboard=False, settings=wandb.Settings(_disable_stats=True))
+run = wandb.init(reinit=True, sync_tensorboard=False, settings=wandb.Settings(_disable_stats=True))
 
-result = run_bayesopt_experiment(wandb.config)
+result = run_bayesopt_experiment(run.config)
 
-(cost_history, config_id_history, best_id_history, best_y_history, acq_history) = result
+(cost_history, estimated_cost_history, config_id_history, best_id_history, best_y_history, acq_history) = result
 
 cumulative_costs = np.cumsum(cost_history)
+estimated_cumulative_costs = np.cumsum(estimated_cost_history)
 
 # Log full info
 for idx in range(len(cost_history)):
     log_dict = {
         "config id": config_id_history[idx],
         "cumulative cost": cumulative_costs[idx],
+        'estimated cumulative cost': estimated_cumulative_costs[idx],
         "current best id": best_id_history[idx],
         "current best observed": best_y_history[idx],
         "StablePBGI(1e-3) acq": acq_history['StablePBGI(1e-3)'][idx],
@@ -267,7 +273,7 @@ for idx in range(len(cost_history)):
         "regret upper bound": acq_history['regret upper bound'][idx],
         # "PRB": acq_history['PRB'][idx]
     }
-    wandb.log(log_dict)
-    time.sleep(0.5)  # Delay of 0.5s per entry
+    run.log(log_dict)
+    time.sleep(1)  # Delay of 1s per entry
 
-wandb.finish()
+run.finish()
