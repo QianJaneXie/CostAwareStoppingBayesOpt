@@ -122,8 +122,9 @@ def run_bayesopt_experiment(bayesopt_config):
         StablePBGI_1e_6 = StableGittinsIndex(model=model, maximize=maximize, lmbda=1e-6, cost=cost_function)
         StablePBGI_1e_7 = StableGittinsIndex(model=model, maximize=maximize, lmbda=1e-7, cost=cost_function)
         LogEIC = LogExpectedImprovementWithCost(model=model, best_f=best_f, maximize=maximize, cost=cost_function)
-        UCB = UpperConfidenceBound(model=model, maximize=maximize, beta=2 * np.log(dim * ((i + 1) ** 2) * (math.pi ** 2) / (6 * 0.1)) / 5)
-        LCB = LowerConfidenceBound(model=model, maximize=maximize, beta=2 * np.log(dim * ((i + 1) ** 2) * (math.pi ** 2) / (6 * 0.1)) / 5)
+        beta = 2 * np.log(dim * ((i + 1) ** 2) * (math.pi ** 2) / (6 * 0.1)) / 5
+        UCB = UpperConfidenceBound(model=model, maximize=maximize, beta=beta)
+        LCB = LowerConfidenceBound(model=model, maximize=maximize, beta=beta)
 
         # 4. Evaluate the acquisition function on all candidate x's.
         StablePBGI_1e_5_acq = StablePBGI_1e_5.forward(all_x.unsqueeze(1))
@@ -287,7 +288,7 @@ def run_bayesopt_experiment(bayesopt_config):
             acq_history)
 
 
-wandb.init(sync_tensorboard=False, settings=wandb.Settings(_disable_stats=True))
+wandb.init(reinit=True, sync_tensorboard=False, settings=wandb.Settings(_disable_stats=True))
 
 result = run_bayesopt_experiment(wandb.config)
 

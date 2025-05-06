@@ -281,7 +281,7 @@ def run_bayesopt_experiment(bayesopt_config):
             best_y_history,
             acq_history)
 
-wandb.init()
+wandb.init(reinit=True, sync_tensorboard=False, settings=wandb.Settings(_disable_stats=True))
 
 result = run_bayesopt_experiment(wandb.config)
 
