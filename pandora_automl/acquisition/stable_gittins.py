@@ -90,7 +90,7 @@ class StableGittinsIndex(AnalyticAcquisitionFunction):
         self.unknown_cost = unknown_cost      
         
     @t_batch_mode_transform(expected_q=1, assert_output_shape=False)
-    def forward(self, X: Tensor) -> Tensor:
+    def forward(self, X: Tensor, cost_X: Optional[Tensor] = None) -> Tensor:
         r"""Evaluate Gittins Index on the candidate set X using bisection method.
 
         Args:
@@ -121,10 +121,13 @@ class StableGittinsIndex(AnalyticAcquisitionFunction):
             # Handling the known cost scenario
             mean, sigma = self._mean_and_sigma(X)
 
-            if callable(self.cost):
-                log_cost_X = self.cost(X).view(mean.shape).log()
+            if cost_X is not None:
+                log_cost_X = cost_X.view(mean.shape).log()
             else:
-                log_cost_X = torch.zeros_like(mean)
+                if callable(self.cost):
+                    log_cost_X = self.cost(X).view(mean.shape).log()
+                else:
+                    log_cost_X = torch.zeros_like(mean)
 
             gi_value = StableGittinsIndexFunction.apply(X, mean, sigma, self.lmbda, self.maximize, self.bound, self.eps, log_cost_X)
 
