@@ -51,7 +51,7 @@ class LogExpectedImprovementWithCost(AnalyticAcquisitionFunction):
         self.register_buffer("cost_exponent", torch.as_tensor(cost_exponent))
     
     @t_batch_mode_transform(expected_q=1, assert_output_shape=False)
-    def forward(self, X: Tensor) -> Tensor:
+    def forward(self, X: Tensor, cost_X: Optional[Tensor] = None) -> Tensor:
         if self.unknown_cost:
             # Handling the unknown cost scenario
             posterior = self.model.posterior(X)
@@ -75,5 +75,12 @@ class LogExpectedImprovementWithCost(AnalyticAcquisitionFunction):
         else:
             # Handling the known cost scenario
             LogEI = LogExpectedImprovement(model=self.model, best_f=self.best_f, maximize=self.maximize)
-            log_eic = LogEI(X) - self.cost_exponent * self.cost(X).view(LogEI(X).shape).log()
+            log_ei = LogEI(X)
+ 
+            if cost_X is not None:
+                cost_vals = cost_X.view(log_ei.shape)
+            else:
+                cost_vals = self.cost(X).view(log_ei.shape)
+
+            log_eic = log_ei - self.cost_exponent * cost_vals.log()
             return log_eic
