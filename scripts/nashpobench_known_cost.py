@@ -200,7 +200,7 @@ def run_bayesopt_experiment(bayesopt_config):
 
         # 7.8. Final expression for ΔR̃_t (the expected minimal regret gap).
         exp_min_regret_gap = delta_mu + ei_diff + kappa.item() * np.sqrt(0.5 * kl)
-        acq_history['exp max regret gap'].append(exp_min_regret_gap)
+        acq_history['exp min regret gap'].append(exp_min_regret_gap)
         acq_history['regret upper bound'].append(kappa.item())
 
         # 7.9. Reassign old_model and old_config_x for the next iteration.
