@@ -6,7 +6,7 @@
 #SBATCH --mail-user=qx66@cornell.edu         # Email address to send results to
 #SBATCH -N 1                                 # Total number of nodes requested
 #SBATCH -n 1                                 # Total number of cores requested
-#SBATCH --array=0-99                        # Number of jobs
+#SBATCH --array=0-999                        # Number of jobs
 #SBATCH --mem-per-cpu=16G                  # Server memory requested (per node)
 #SBATCH -t 240:00:00                           # Time limit (hh:mm:ss)
 #SBATCH --partition=default_partition        # Request partition
@@ -15,5 +15,5 @@
 source /share/apps/anaconda3/2021.05/etc/profile.d/conda.sh
 conda activate automl_env
 wandb login
-wandb agent 'ziv-scully-group/PandoraBayesOpt/r8qk7cxd' --count 1
+wandb agent 'ziv-scully-group/StoppingBayesOptEmpirical/e2hd88fe' --count 1
 conda deactivate
