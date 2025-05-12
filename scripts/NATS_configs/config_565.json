@@ -1,0 +1,10 @@
+{
+  "output_standardize": true,
+  "maximize": false,
+  "dim": 30,
+  "num_iteration": 400,
+  "num_configs": 15625,
+  "dataset_name": "cifar100",
+  "seed": 44,
+  "acquisition_function": "StablePBGI(1e-4)"
+}

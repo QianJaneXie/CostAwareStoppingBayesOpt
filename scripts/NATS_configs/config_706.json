@@ -1,0 +1,10 @@
+{
+  "output_standardize": true,
+  "maximize": false,
+  "dim": 30,
+  "num_iteration": 400,
+  "num_configs": 15625,
+  "dataset_name": "ImageNet16-120",
+  "seed": 17,
+  "acquisition_function": "LCB"
+}
