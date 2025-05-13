@@ -264,7 +264,7 @@ except wandb.errors.UsageError:
 config = run.config
 print(config)
 
-(global_optimum_value, cost_history, best_history, regret_history, acq_history, stopping_history, lmbda_history) = run_bayesopt_experiment(run.config)
+(global_optimum_value, cost_history, best_history, regret_history, acq_history, stopping_history) = run_bayesopt_experiment(run.config)
 
 
 run.log({"global optimum value": global_optimum_value})
