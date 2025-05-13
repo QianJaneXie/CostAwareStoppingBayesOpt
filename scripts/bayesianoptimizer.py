@@ -404,7 +404,7 @@ class BayesianOptimizer:
 
         self.x = torch.cat((self.x, new_point.detach()))
         self.y = torch.cat((self.y, new_value.detach()))
-        # self.log_time(self.update_stopping_criteria, "PRB")
+        self.log_time(self.update_stopping_criteria, "PRB")
         # self.log_time(self.update_stopping_criteria, "PRB", option=2)
         # self.log_time(self.update_stopping_criteria, "PRB", option=3)
         self.log_time(self.update_stopping_criteria, "StablePBGI")
