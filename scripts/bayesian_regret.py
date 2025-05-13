@@ -240,14 +240,12 @@ def run_bayesopt_experiment(config):
     regret_history = Optimizer.get_regret_history(global_optimum_value.item())
     acq_history = Optimizer.get_acq_history()
     stopping_history = Optimizer.get_stopping_history()
-    lmbda_history = Optimizer.get_lmbda_history()
 
     print("Cost history:", cost_history)
     print("Best history:", best_history)
     print("Regret history:", regret_history)
     print("Acquisition history:", acq_history)
     print("Stopping history:", stopping_history)
-    print("Lambda history:", lmbda_history)
 
     print()
     
@@ -284,9 +282,9 @@ for idx in range(len(cost_history)):
         "StablePBGI(0.001)": stopping_history['StablePBGI(0.001)'][idx], 
         "LogEIC acq": stopping_history['LogEIC'][idx],
         "UCB-LCB acq": stopping_history['UCB-LCB'][idx],
-        "Regret-Gap acq": stopping_history['Expected-Min-Regret-Gap'][idx]
+        "Regret-Gap acq": stopping_history['Expected-Min-Regret-Gap'][idx],
+        "PRB_0.1": stopping_history['PRB_0.1'][idx],
     }
     run.log(log_dict)
-    time.sleep(0.1)  # Delay of 0.1s per entry
-#  "PRB_0.1": stopping_history['PRB_0.1'][idx],
+    time.sleep(0.5)  # Delay of 0.5s per entry
 run.finish()
