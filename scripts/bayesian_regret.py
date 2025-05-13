@@ -249,7 +249,7 @@ def run_bayesopt_experiment(config):
 
     print()
     
-    return (global_optimum_value.item(), cost_history, best_history, regret_history, acq_history, stopping_history, lmbda_history)
+    return (global_optimum_value.item(), cost_history, best_history, regret_history, acq_history, stopping_history)
 
 # Initialize wandb
 
