@@ -541,7 +541,7 @@ class BayesianOptimizer:
             LogEIC = LogExpectedImprovementWithCost(model=self.model, best_f=self.best_f, maximize=self.maximize, cost=self.cost)
             if (self.dim == 1):
                 LogEIC_acq = LogEIC.forward(candidates.unsqueeze(1)) 
-                new_config_acq = torch.max(LogEIC_acq[self.mask])
+                new_config_acq = torch.max(LogEIC_acq[self.mask]).detach()
             else:
 
                 candidates, LogEIC_acq = optimize_acqf(
@@ -552,8 +552,8 @@ class BayesianOptimizer:
                         raw_samples=1024*self.dim,
                         gen_candidates=gen_candidates_torch
                     )
-            
-            new_config_acq = LogEIC_acq # torch.max(LogEIC_acq)
+                new_config_acq = LogEIC_acq # torch.max(LogEIC_acq)
+        
             self.stopping_history[key].append(new_config_acq.item())
 
         elif (stopping_criteria == "UCB-LCB"):  
