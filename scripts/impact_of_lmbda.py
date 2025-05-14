@@ -12,7 +12,8 @@ from pandora_automl.acquisition.gittins import GittinsIndex
 from pandora_automl.acquisition.stable_gittins import StableGittinsIndex
 from pandora_automl.acquisition.log_ei import LogExpectedImprovement
 from pandora_automl.acquisition.log_ei_puc import LogExpectedImprovementWithCost
-from bayesianoptimizer import BayesianOptimizer
+from scripts.bayesianoptimizer import BayesianOptimizer
+
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -254,7 +255,7 @@ def run_bayesopt_experiment(config):
     return (global_optimum_value.item(), cost_history, best_history, regret_history, acq_history, stopping_history, lmbda_history)
 
 # Initialize wandb
-
+'''
 try:
     os.environ["WANDB_MODE"] = "online"
     run = wandb.init(sync_tensorboard=False, settings=wandb.Settings(_disable_stats=True))
@@ -288,5 +289,86 @@ for idx in range(len(cost_history)):
     }
     run.log(log_dict)
     time.sleep(0.1)  # Delay of 0.1s per entry
-#  "PRB_0.1": stopping_history['PRB_0.1'][idx],
+#  "PRB_0.1": stopping_history['PRB_0.1'][idx], ,
+    # "PRB_0.1": stopping_history['PRB_0.1'][idx]
 run.finish()
+'''
+
+def rerun_one(run_id, config):
+    """
+    Worker: re-launch a single crashed run, given only its ID and config dict.
+    """
+    run = wandb.init(
+        project="StoppingBayesOptSynthetic",
+        id=run_id,
+        resume="allow",
+        config=config,
+    )
+
+    (global_optimum_value,
+     cost_history,
+     best_history,
+     regret_history,
+     acq_history,
+     stopping_history,
+     lmbda_history) = run_bayesopt_experiment(run.config)
+
+    run.log({"global optimum value": global_optimum_value})
+    for i in range(len(cost_history)):
+        run.log({
+            "cumulative cost":   cost_history[i],
+            "best observed":     best_history[i],
+            "regret":            regret_history[i],
+            "lg(regret)":        np.log10(regret_history[i]),
+            "StablePBGI(0.1)":   stopping_history['StablePBGI(0.1)'][i],
+            "StablePBGI(0.01)":  stopping_history['StablePBGI(0.01)'][i],
+            "StablePBGI(0.001)": stopping_history['StablePBGI(0.001)'][i], 
+            "LogEIC acq":        stopping_history['LogEIC'][i],
+            "UCB-LCB acq":       stopping_history['UCB-LCB'][i],
+            "Regret-Gap acq":    stopping_history['Expected-Min-Regret-Gap'][i],
+        })
+        time.sleep(1)
+    run.finish()
+    return run_id
+
+def main():
+    sweep_path = "ziv-scully-group/StoppingBayesOptSynthetic"
+    sweep_id   = "t9064eg1"
+
+    api = wandb.Api()
+    # old_run = api.run(sweep_path)
+    all_runs = api.runs(sweep_path, filters={"sweep": sweep_id})
+    # , filters={"sweep": sweep_id, }, ilters={"display_name": {"$eq": "bright-sweep-52"}})
+    #v print(old_run)
+    # Build a simple list of (id, config_dict) so it’s picklable:
+    to_rerun = [] # [old_run]
+    
+    for r in all_runs:
+        # print(r.id)
+        if r.state not in ("finished", "running"):
+            print(r.name)
+            # convert the AttrsDict to a plain dict
+            cfg = {k: v for k, v in r.config.items() if not k.startswith("_")}
+            to_rerun.append((r.id, cfg))
+    
+    if not to_rerun:
+        print("Nothing to rerun!")
+        return
+
+    # Use up to 10 processes on your 16-core box
+    with ProcessPoolExecutor(max_workers=6) as exe:
+        futures = {
+            exe.submit(rerun_one, run_id, cfg): run_id
+            for run_id, cfg in to_rerun
+        }
+        for fut in as_completed(futures):
+            run_id = futures[fut]
+            try:
+                fut.result()
+                print(f"✅ Reran {run_id}")
+            except Exception as e:
+                print(f"❌ {run_id} failed: {e!r}")
+
+
+if __name__ == "__main__":
+    main()
