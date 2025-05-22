@@ -113,284 +113,162 @@ class BayesianOptimizer:
         self.best_f = self.y.max().item() if self.maximize else self.y.min().item()
         self.best_x = self.x[self.y.argmax()] if self.maximize else self.x[self.y.argmin()]
         self.best_history.append(self.best_f)
-
-
+    
     def iterate(self, acquisition_function_class, **acqf_kwargs):
 
-        is_rs = False
-        is_ms = False
         is_ts = False
         is_pes = False
-
-        if acquisition_function_class == BudgetedMultiStepLookaheadEI:
-            gaussian_likelihood = True
+        gaussian_likelihood = False
+    
+        if acquisition_function_class in (ExpectedImprovementWithCost, LogExpectedImprovementWithCost, GittinsIndex, BudgetedMultiStepLookaheadEI):
+            unknown_cost = self.unknown_cost
         else:
-            gaussian_likelihood = False
+            unknown_cost = False
+
+        self.old_model = self.model
+        model = fit_gp_model(
+            X=self.x.detach(), 
+            objective_X=self.y.detach(), 
+            cost_X=self.c.detach(), 
+            unknown_cost=unknown_cost,
+            kernel=self.kernel,
+            gaussian_likelihood=gaussian_likelihood,
+            output_standardize=self.output_standardize,
+        )
+        self.model = model
+        if (self.old_model is None):
+            self.old_model = model
+
+        acqf_args = {'model': model}
         
-        if acquisition_function_class == "RandomSearch":
-            is_rs = True
-            new_point = torch.rand(1, self.dim)
+        if acquisition_function_class == "ThompsonSampling":
+        
+            # Draw sample path(s)
+            paths = draw_matheron_paths(model, sample_shape=torch.Size([1]))
             
-        else:
-            if acquisition_function_class in (ExpectedImprovementWithCost, LogExpectedImprovementWithCost, GittinsIndex, BudgetedMultiStepLookaheadEI):
-                unknown_cost = self.unknown_cost
-            else:
-                unknown_cost = False
+            # Optimize
+            optimal_input, optimal_output = optimize_posterior_samples(paths=paths, bounds=self.bounds, maximize=self.maximize)
 
-            # print("time_1", time.time())
-            self.old_model = self.model
-            model = fit_gp_model(
-                X=self.x.detach(), 
-                objective_X=self.y.detach(), 
-                cost_X=self.c.detach(), 
-                unknown_cost=unknown_cost,
-                kernel=self.kernel,
-                gaussian_likelihood=gaussian_likelihood,
-                # noisy_observation=self.noisy_observation,
-                output_standardize=self.output_standardize,
-            )
-            self.model = model
-            if (self.old_model is None):
-                self.old_model = model
-
-            # print("time_2", time.time())
-
-            acqf_args = {'model': model}
-           
-            if acquisition_function_class in ("ThompsonSampling", qPredictiveEntropySearch, "SurrogatePrice"):
+            is_ts = True
+            new_point = optimal_input
+            self.current_acq = optimal_output.item()
+        
+        if acquisition_function_class in (GittinsIndex, StableGittinsIndex):
+            acqf_args['maximize'] = self.maximize
             
-                # Draw sample path(s)
-                paths = draw_matheron_paths(model, sample_shape=torch.Size([1]))
-                
-                # Optimize
-                optimal_input, optimal_output = optimize_posterior_samples(paths=paths, bounds=self.bounds, maximize=self.maximize)
-
-                if acquisition_function_class == "ThompsonSampling":
-                    is_ts = True
-                    new_point = optimal_input
-                    self.current_acq = optimal_output.item()
-                
-                elif acquisition_function_class == qPredictiveEntropySearch:
-                    is_pes = True
-                    PES = qPredictiveEntropySearch(model=model, optimal_inputs=optimal_input, maximize=self.maximize)
-                    new_point, new_point_PES = optimize_acqf(
-                        acq_function=PES,
-                        bounds=self.bounds,
-                        q=1,
-                        num_restarts=10*self.dim,
-                        raw_samples=200*self.dim,
-                        options={
-                                "batch_limit": 5,
-                                "maxiter": 200,
-                                "with_grad": False
-                            },
-                    )
-                    self.current_acq = new_point_PES.item()
-
-            
-            if acquisition_function_class in (GittinsIndex, StableGittinsIndex):
-                acqf_args['maximize'] = self.maximize
-                
-                if acqf_kwargs.get('step_EIpu') == True:
-                    if self.need_lmbda_update:
-                        if callable(self.cost) or callable(self.objective_cost):
-                            # Optimize EIpu first to get new_point_EIpu
-                            EIpu = ExpectedImprovementWithCost(model=model, best_f=self.best_f, maximize=self.maximize, cost=self.cost, unknown_cost=self.unknown_cost)
-                            _, new_point_EIpu = optimize_acqf(
-                                acq_function=EIpu,
-                                bounds=self.bounds,
-                                q=1,
-                                num_restarts=10*self.dim,
-                                raw_samples=200*self.dim,
-                                options={'method': 'L-BFGS-B'},
-                            )
-                            if self.current_lmbda == None:
-                                self.current_lmbda = new_point_EIpu.item() / 2
-                            else:
-                                self.current_lmbda = min(self.current_lmbda, new_point_EIpu.item() / 2)
-
-                        else:
-                            # Optimize EI first to get new_point_EI
-                            EI = ExpectedImprovement(model=model, best_f=self.best_f, maximize=self.maximize)
-                            _, new_point_EI = optimize_acqf(
-                                acq_function=EI,
-                                bounds=self.bounds,
-                                q=1,
-                                num_restarts=10*self.dim,
-                                raw_samples=200*self.dim,
-                                options={'method': 'L-BFGS-B'},
-                            )
-                            if self.current_lmbda == None:
-                                self.current_lmbda = new_point_EI.item() / 2
-                            else:
-                                self.current_lmbda = min(self.current_lmbda, new_point_EI.item() / 2)
-                        self.need_lmbda_update = False  # Reset the flag
-                    
-                    acqf_args['lmbda'] = self.current_lmbda
-                    self.lmbda_history.append(self.current_lmbda)
-                 
-                elif acqf_kwargs.get('step_divide') == True:
-                    if self.need_lmbda_update:
-                        self.current_lmbda = self.current_lmbda / acqf_kwargs.get('alpha')
-                        self.need_lmbda_update = False
-                    acqf_args['lmbda'] = self.current_lmbda
-                    self.lmbda_history.append(self.current_lmbda)
-
-                else: 
-                    acqf_args['lmbda'] = acqf_kwargs['lmbda']
-                    self.lmbda_history.append(acqf_kwargs['lmbda'])
-
-                acqf_args['cost'] = self.cost
-                acqf_args['unknown_cost'] = self.unknown_cost
-
-            
-            elif acquisition_function_class == UpperConfidenceBound:
-                if acqf_kwargs.get('heuristic') == True:
-                    print("Using heuristic for beta")
-                    acqf_args['beta'] = 2*np.log(self.dim*((self.cumulative_cost+1)**2)*(math.pi**2)/(6*0.1))/5
-                else:
-                    acqf_args['beta'] = acqf_kwargs['beta']
-                acqf_args['maximize'] = self.maximize
-            
-            
-            elif acquisition_function_class in (ExpectedImprovement, LogExpectedImprovement, LogVanillaExpectedImprovement, StableExpectedImprovement):
-                acqf_args['best_f'] = self.best_f
-                acqf_args['maximize'] = self.maximize
-
-            
-            elif acquisition_function_class in (ExpectedImprovementWithCost, LogExpectedImprovementWithCost):
-                acqf_args['best_f'] = self.best_f
-                acqf_args['maximize'] = self.maximize
-                acqf_args['cost'] = self.cost
-                acqf_args['unknown_cost'] = self.unknown_cost
-                if acqf_kwargs.get('cost_cooling') == True:
-                    cost_exponent = (self.budget - self.cumulative_cost) / self.budget
-                    cost_exponent = max(cost_exponent, 0)  # Ensure cost_exponent is non-negative
-                    acqf_args['cost_exponent'] = cost_exponent
-
-
-            elif acquisition_function_class in (qMaxValueEntropy, qMultiFidelityMaxValueEntropy):
-                candidate_set = torch.rand(1000*self.dim, self.bounds.size(1))
-                candidate_set = self.bounds[0] + (self.bounds[1] - self.bounds[0]) * candidate_set
-                acqf_args['candidate_set'] = candidate_set
-
-                if acquisition_function_class == qMultiFidelityMaxValueEntropy:
-                    cost_function = copy(self.cost)
-                    class CostModel(GenericDeterministicModel):
-                        def __init__(self):
-                            super().__init__(f=cost_function)
-                    cost_model = CostModel()
-                    cost_aware_utility = InverseCostWeightedUtility(cost_model=cost_model)
-                    acqf_args['cost_aware_utility'] = cost_aware_utility
-
-
-            elif acquisition_function_class in (MultiStepLookaheadEI, BudgetedMultiStepLookaheadEI):
-                is_ms = True
-                acqf_args['batch_size'] = 1
-                acqf_args['lookahead_batch_sizes'] = [1, 1, 1]
-                acqf_args['num_fantasies'] = [1, 1, 1]
-                
-                if acquisition_function_class == BudgetedMultiStepLookaheadEI:
-                    acqf_args['cost_function'] = copy(self.cost)
-                    acqf_args['unknown_cost'] = self.unknown_cost
-                    acqf_args['budget_plus_cumulative_cost'] = min(self.budget - self.cumulative_cost, self.c[-4:].sum().item()) + self.c.sum().item()
-                    print(acqf_args['budget_plus_cumulative_cost'])
-                
-            
-            else:
-                acqf_args.update(**acqf_kwargs)
-
-
-            if is_ts == False and is_pes == False:
-                acq_function = acquisition_function_class(**acqf_args)
-                if self.suggested_x_full_tree is not None:
-                    print("Using warmstart for multi-step initialization")
-
-                    batch_initial_conditions = warmstart_multistep(
-                            acq_function=acq_function,
+            if acqf_kwargs.get('step_EIpu') == True:
+                if self.need_lmbda_update:
+                    if callable(self.cost) or callable(self.objective_cost):
+                        # Optimize EIpu first to get new_point_EIpu
+                        EIpu = ExpectedImprovementWithCost(model=model, best_f=self.best_f, maximize=self.maximize, cost=self.cost, unknown_cost=self.unknown_cost)
+                        _, new_point_EIpu = optimize_acqf(
+                            acq_function=EIpu,
                             bounds=self.bounds,
-                            num_restarts=10 * self.dim,
-                            raw_samples=200 * self.dim,
-                            full_optimizer=self.suggested_x_full_tree,
-                            algo_params=acqf_args,
+                            q=1,
+                            num_restarts=10*self.dim,
+                            raw_samples=200*self.dim,
+                            options={'method': 'L-BFGS-B'},
                         )
-                else:
-                    batch_initial_conditions = None
-                    '''
-                    print("Using random batch initialization") 
-                    batch_initial_conditions = gen_batch_initial_conditions(
-                        acq_function=acq_function,
-                        bounds=self.bounds,
-                        q=1,
-                        num_restarts=10 * self.dim,
-                        raw_samples=200 * self.dim
-                    )
-                    '''
-                q = acq_function.get_augmented_q_batch_size(1) if is_ms else 1
+                        if self.current_lmbda == None:
+                            self.current_lmbda = new_point_EIpu.item() / 2
+                        else:
+                            self.current_lmbda = min(self.current_lmbda, new_point_EIpu.item() / 2)
 
-                # use grid search if dimension is 1, otherwise use optimization
-                if self.dim == 1:
-                    print("Using grid search for 1D optimization")
-                    candidates = torch.linspace(0, 1, self.granularity).unsqueeze(1).unsqueeze(1)
-                    # grids = [torch.linspace(0, 1, granularity) for _ in range(self.dim)]
-                    # mesh = torch.meshgrid(*grids, indexing="ij")  # consistent indexing
-                    # candidates = torch.stack([g.flatten() for g in mesh], dim=-1).unsqueeze(-2)  # shape (granularity^dim, dim)
-                    candidates_acq_vals = acq_function.forward(candidates[self.mask])
-                    candidates =  candidates.detach()
-                    best_idx = torch.argmax(candidates_acq_vals.view(-1), dim=0)
-                    best_point = candidates[best_idx]
-                    best_acq_val = candidates_acq_vals[best_idx].item()
-
-                else:
-                    print("time_3", time.time())
-                    print("Using optimization for multi-dimensional optimization")
-                    
-                    candidate, candidate_acq_val = optimize_acqf(
-                        acq_function=acq_function,
-                        bounds=torch.stack([torch.zeros(self.dim), torch.ones(self.dim)]),
-                        q=1,
-                        num_restarts=10*self.dim,
-                        raw_samples=1024*self.dim,
-                        gen_candidates=gen_candidates_torch
-                    )
-                    best_point = candidate.detach()
-                    best_acq_val = candidate_acq_val.item() 
-                    '''
-                    
-                    candidates, candidates_acq_vals = optimize_acqf(
-                        acq_function=acq_function,
-                        bounds=self.bounds,
-                        q=q,
-                        num_restarts=10 * self.dim,
-                        raw_samples=200 * self.dim,
-                        options={
-                                "batch_limit": 5,
-                                "maxiter": 200,
-                                "method": "L-BFGS-B",
-                            },
-                        batch_initial_conditions=batch_initial_conditions,
-                        return_best_only=False,
-                        return_full_tree=is_ms,
-                    )
-                    print("candidate")
-                    print(candidates, candidates_acq_vals)
-                    print("time_4", time.time())
-                    best_idx = torch.argmax(candidates_acq_vals.view(-1), dim=0)
-                    best_point = candidates[best_idx]
-                    best_acq_val = candidates_acq_vals[best_idx].item()
-                    '''
+                    else:
+                        # Optimize EI first to get new_point_EI
+                        EI = ExpectedImprovement(model=model, best_f=self.best_f, maximize=self.maximize)
+                        _, new_point_EI = optimize_acqf(
+                            acq_function=EI,
+                            bounds=self.bounds,
+                            q=1,
+                            num_restarts=10*self.dim,
+                            raw_samples=200*self.dim,
+                            options={'method': 'L-BFGS-B'},
+                        )
+                        if self.current_lmbda == None:
+                            self.current_lmbda = new_point_EI.item() / 2
+                        else:
+                            self.current_lmbda = min(self.current_lmbda, new_point_EI.item() / 2)
+                    self.need_lmbda_update = False  # Reset the flag
                 
-                # print("candidates:", candidates.shape)
-            
-                if is_ms:
-                    # save all tree variables for multi-step initialization
-                    self.suggested_x_full_tree = candidates.clone()
-                    candidate = acq_function.extract_candidates(candidates)
-                # best_point = candidate
-                # best_acq_val = candidate_acq_val
+                acqf_args['lmbda'] = self.current_lmbda
+                self.lmbda_history.append(self.current_lmbda)
+                
+            elif acqf_kwargs.get('step_divide') == True:
+                if self.need_lmbda_update:
+                    self.current_lmbda = self.current_lmbda / acqf_kwargs.get('alpha')
+                    self.need_lmbda_update = False
+                acqf_args['lmbda'] = self.current_lmbda
+                self.lmbda_history.append(self.current_lmbda)
 
-                new_point = best_point
-                self.current_acq = best_acq_val
+            else: 
+                acqf_args['lmbda'] = acqf_kwargs['lmbda']
+                self.lmbda_history.append(acqf_kwargs['lmbda'])
+
+            acqf_args['cost'] = self.cost
+            acqf_args['unknown_cost'] = self.unknown_cost
+
+        
+        elif acquisition_function_class == UpperConfidenceBound:
+            if acqf_kwargs.get('heuristic') == True:
+                print("Using heuristic for beta")
+                acqf_args['beta'] = 2*np.log(self.dim*((self.cumulative_cost+1)**2)*(math.pi**2)/(6*0.1))/5
+            else:
+                acqf_args['beta'] = acqf_kwargs['beta']
+            acqf_args['maximize'] = self.maximize
+        
+        
+        elif acquisition_function_class in (ExpectedImprovement, LogExpectedImprovement, LogVanillaExpectedImprovement, StableExpectedImprovement):
+            acqf_args['best_f'] = self.best_f
+            acqf_args['maximize'] = self.maximize
+
+        
+        elif acquisition_function_class in (ExpectedImprovementWithCost, LogExpectedImprovementWithCost):
+            acqf_args['best_f'] = self.best_f
+            acqf_args['maximize'] = self.maximize
+            acqf_args['cost'] = self.cost
+            acqf_args['unknown_cost'] = self.unknown_cost
+            if acqf_kwargs.get('cost_cooling') == True:
+                cost_exponent = (self.budget - self.cumulative_cost) / self.budget
+                cost_exponent = max(cost_exponent, 0)  # Ensure cost_exponent is non-negative
+                acqf_args['cost_exponent'] = cost_exponent
+
+        else:
+            acqf_args.update(**acqf_kwargs)
+
+
+        if is_ts == False and is_pes == False:
+            acq_function = acquisition_function_class(**acqf_args)
+
+            # use grid search if dimension is 1, otherwise use optimization
+            if self.dim == 1:
+                print("Using grid search for 1D optimization")
+                candidates = torch.linspace(0, 1, self.granularity).unsqueeze(1).unsqueeze(1)
+                candidates_acq_vals = acq_function.forward(candidates[self.mask])
+                candidates =  candidates.detach()
+                # change to reflect minimization objective
+                if (self.maximize):
+                    best_idx = torch.argmax(candidates_acq_vals.view(-1), dim=0)
+                else:
+                    best_idx = torch.argmin(candidates_acq_vals.view(-1), dim=0)
+                best_point = candidates[best_idx]
+                best_acq_val = candidates_acq_vals[best_idx].item()
+
+            else:
+                print("Using optimization for multi-dimensional optimization")
+                candidate, candidate_acq_val = optimize_acqf(
+                    acq_function=acq_function,
+                    bounds=torch.stack([torch.zeros(self.dim), torch.ones(self.dim)]),
+                    q=1,
+                    num_restarts=10*self.dim,
+                    raw_samples=1024*self.dim,
+                    gen_candidates=gen_candidates_torch
+                )
+                best_point = candidate.detach()
+                best_acq_val = candidate_acq_val.item() 
+
+            new_point = best_point
+            self.current_acq = best_acq_val
 
 
         if self.unknown_cost:
@@ -404,12 +282,16 @@ class BayesianOptimizer:
 
         self.x = torch.cat((self.x, new_point.detach()))
         self.y = torch.cat((self.y, new_value.detach()))
-        self.log_time(self.update_stopping_criteria, "PRB")
-        # self.log_time(self.update_stopping_criteria, "PRB", option=2)
-        # self.log_time(self.update_stopping_criteria, "PRB", option=3)
-        self.log_time(self.update_stopping_criteria, "StablePBGI")
+        
+        # Record statistics about different stopping rules
+        self.log_time(self.update_stopping_criteria, "PRB", skip_prb=False)
+        self.log_time(self.update_stopping_criteria, "StablePBGI", lmbda=0.1)
+        self.log_time(self.update_stopping_criteria, "StablePBGI", lmbda=0.01)
+        self.log_time(self.update_stopping_criteria, "StablePBGI", lmbda=0.001)
         self.log_time(self.update_stopping_criteria, "LogEIC")
         self.log_time(self.update_stopping_criteria, "UCB-LCB")
+        self.log_time(self.update_stopping_criteria, "Expected_Min_Regret_Gap")
+
 
         self.update_best()
         self.update_cost(new_point)
@@ -418,10 +300,6 @@ class BayesianOptimizer:
             self.mask[int(new_point.detach()*(self.granularity - 1))] = False
         self.iteration += 1
 
-
-        if is_rs:
-            self.current_acq = new_value.item()
-
         self.acq_history.append(self.current_acq)
 
         # Check if lmbda needs to be updated in the next iteration
@@ -429,52 +307,70 @@ class BayesianOptimizer:
             if (self.maximize and self.current_acq < self.best_f) or (not self.maximize and -self.current_acq > self.best_f):
                 self.need_lmbda_update = True
 
+    def if_not_exist_create_key(self, key):
+        if key not in self.stopping_history:
+            self.stopping_history[key] = [np.nan]  # initialize if missing
 
     def log_time(self, func, *args, **kwargs):
         start_time = time.time()
         result = func(*args, **kwargs)
-        print(f"{func.__name__} took {time.time() - start_time:.4f} seconds")
+        elapsed = time.time() - start_time
+        print(f"{func.__name__}({args[0] if args else ''}) took {elapsed:.4f} s")
+
+        # --- record the timing in `stopping_history` ---------------------------
+        if func.__name__ == "update_stopping_criteria":
+            crit = args[0]                                    # e.g. "PRB", "StablePBGI"
+            if crit == "StablePBGI":
+                crit_key = f"StablePBGI({kwargs.get('lmbda', 0.01)})"
+            elif crit == "PRB":                               # keep in sync with ε = 0.1
+                crit_key = "PRB_0.1"
+            else:
+                crit_key = crit
+
+            time_key = f"{crit_key}_time"
+            self.if_not_exist_create_key(time_key) 
+            self.stopping_history[time_key].append(elapsed)
+        # -----------------------------------------------------------------------
         return result
-    
-    def update_stopping_criteria(self, stopping_criteria):
+
+
+    def update_stopping_criteria(self, stopping_criteria, lmbda=0.01, skip_prb=True):
         '''
         This function implements the following stopping rules: 
-                                'StablePBGI(1e-1)': [np.nan],
-                                'StablePBGI(1e-2)': [np.nan],
-                                'StablePBGI(1e-3)': [np.nan],
-                                'LogEIC': [np.nan],
-                                'regret upper bound': [np.nan],
-                                'exp min regret gap': [np.nan],
-                                'PRB': [np.nan]
+                                        'StablePBGI(1e-1)',
+                                        'StablePBGI(1e-2)',
+                                        'StablePBGI(1e-3)',
+                                        'LogEIC',
+                                        'regret upper bound',
+                                        'exp min regret gap',
+                                        'PRB'
         '''
         # Currently only works for dim=1
         # Initialization for probabilistic regret bound (PRB) stopping rule
         epsilon = 0.1
-        # epsilons = [0.001, 0.01, 0.1]
-        lmbdas = [0.1, 0.01, 0.001]
-        
         candidates = torch.linspace(0, 1, self.granularity).unsqueeze(1)
 
         if (stopping_criteria == "PRB"):
             # Probabilistic regret bound
             key = f'PRB_{epsilon}'
+            self.if_not_exist_create_key(key)
             paths = draw_matheron_paths(self.model, sample_shape=torch.Size([self.num_samples]))
             bounds = torch.stack([torch.zeros(self.dim), torch.ones(self.dim)])
             
             # When to not skip PRB calculation
             # 1. If the iteration is less than 50 and the iteration is a multiple of 5
             # 2. If the iteration is a multiple of 10
-            if (self.dim > 1):
+            if (self.dim > 1 and skip_prb==True):
                 skip_PRB = not ((self.iteration < 50 and self.iteration % 5 == 0) or self.iteration % 10 == 0)
                 if skip_PRB:
                     print("Skipping PRB calculation")
-                    if key not in self.stopping_history:
-                        self.stopping_history[key] = [np.nan]  # initialize if missing
+                    self.if_not_exist_create_key(key)
                     self.stopping_history[key].append(self.stopping_history[key][-1])
                     return
-
+        
+            maximize_factor = 1 if self.maximize else -1
             if (self.dim == 1):
-                regrets = paths(candidates).max(dim=1).values - paths(self.best_x.unsqueeze(0)).squeeze(-1)
+                regrets = (maximize_factor*paths(candidates)).max(dim=1).values - maximize_factor*paths(self.best_x.unsqueeze(0)).squeeze(-1)
             else:
                 # 1. build a QMC sampler that will internally draw your fantasy paths
                 _, optimum_values = optimize_posterior_samples(paths=paths, 
@@ -482,20 +378,11 @@ class BayesianOptimizer:
                                                                raw_samples=200*self.dim, 
                                                                num_restarts=10*self.dim,
                                                                maximize=self.maximize)
-                '''
-                elif option == 2:
-                    _, optimum_values = optimize_posterior_samples(paths=paths, bounds=bounds, raw_samples=1024, num_restarts=20, maximize=self.maximize) 
-                elif option == 3:
-                    _, optimum_values = optimize_posterior_samples(paths=paths, bounds=bounds, raw_samples=256*self.dim, num_restarts=10*self.dim, maximize=self.maximize)
-                '''
                 # print("optimum_values:", optimum_values)
-                regrets = optimum_values.squeeze(-1) - paths(self.best_x.unsqueeze(0)).squeeze(-1)
-    
+                regrets = maximize_factor*optimum_values.squeeze(-1) - maximize_factor*paths(self.best_x.unsqueeze(0)).squeeze(-1)
                 # print("regrets:", regrets)
             
             prb_estimate = (regrets <= epsilon).float().mean().item()
-            if key not in self.stopping_history:
-                self.stopping_history[key] = [np.nan]  # initialize if missing
             self.stopping_history[key].append(prb_estimate)
             
                 # print("Probabilistic regret bound")
@@ -504,46 +391,42 @@ class BayesianOptimizer:
  
         elif (stopping_criteria == "StablePBGI"):
             # 3. Stable PBGI
-            for lmbda in lmbdas:
-                key = f'StablePBGI({lmbda})'
-                if key not in self.stopping_history:
-                    self.stopping_history[key] = [np.nan]  # initialize if missing
-                StablePBGI = StableGittinsIndex(model=self.model, maximize=self.maximize, lmbda=lmbda, cost=self.cost)
-                if (self.dim == 1): 
-                    StablePBGI_acq = StablePBGI.forward(candidates.unsqueeze(1))
-                    # TODO: change to minimize if self.maximize is False
-                    new_config_acq = torch.max(StablePBGI_acq[self.mask]) 
-                   
-                else:
-                    # Optimize the acquisition functio
-                    candidates, StablePBGI_acq = optimize_acqf(
-                        acq_function=StablePBGI,
-                        bounds=self.bounds,
-                        q=1,
-                        num_restarts=10*self.dim,
-                        raw_samples=1024*self.dim,
-                        gen_candidates=gen_candidates_torch
-                    )
-     
-                    new_config_acq = StablePBGI_acq # torch.max(StablePBGI_acq)
+            key = f'StablePBGI({lmbda})'
+            self.if_not_exist_create_key(key) 
+            StablePBGI = StableGittinsIndex(model=self.model, maximize=self.maximize, lmbda=lmbda, cost=self.cost)
+            maximize_factor = 1 if self.maximize else -1
+            if (self.dim == 1): 
+                StablePBGI_acq = StablePBGI.forward(candidates.unsqueeze(1))
+                new_config_acq = maximize_factor*torch.max(maximize_factor*StablePBGI_acq[self.mask]) 
+                
+            else:
+                NegStablePBGI = lambda x: -StablePBGI(x)
+                SignedStablePBGI = StablePBGI if self.maximize else NegStablePBGI
+                # Optimize the acquisition function
+                candidates, StablePBGI_acq = optimize_acqf(
+                    acq_function=SignedStablePBGI,
+                    bounds=self.bounds,
+                    q=1,
+                    num_restarts=10*self.dim,
+                    raw_samples=1024*self.dim,
+                    gen_candidates=gen_candidates_torch
+                )
+    
+                new_config_acq = maximize_factor*StablePBGI_acq 
 
-                self.stopping_history[key].append(new_config_acq.item())
-                # print("StablePBGI")
-                # print(f'Lambda: {lmbda}, acquisition: {new_config_acq.item()}') 
+            self.stopping_history[key].append(new_config_acq.item())
+            # print("StablePBGI")
+            # print(f'Lambda: {lmbda}, acquisition: {new_config_acq.item()}') 
 
         elif (stopping_criteria == "LogEIC"):
             key = 'LogEIC'
-            # key_1 = 'LogEIC_small'
-            # key_2 = 'LogEIC_large'
-            # for key in [key_1, key_2]:
-            if key not in self.stopping_history:
-                self.stopping_history[key] = [np.nan]  # initialize if missing
+            self.if_not_exist_create_key(key)
             LogEIC = LogExpectedImprovementWithCost(model=self.model, best_f=self.best_f, maximize=self.maximize, cost=self.cost)
+            # maximization or minimization objective has no effect on LogEIC
             if (self.dim == 1):
                 LogEIC_acq = LogEIC.forward(candidates.unsqueeze(1)) 
-                new_config_acq = torch.max(LogEIC_acq[self.mask])
+                new_config_acq = torch.max(LogEIC_acq[self.mask]).detach()
             else:
-
                 candidates, LogEIC_acq = optimize_acqf(
                         acq_function=LogEIC,
                         bounds=self.bounds,
@@ -552,34 +435,29 @@ class BayesianOptimizer:
                         raw_samples=1024*self.dim,
                         gen_candidates=gen_candidates_torch
                     )
-            
-            new_config_acq = LogEIC_acq # torch.max(LogEIC_acq)
+                new_config_acq = LogEIC_acq # torch.max(LogEIC_acq)
+        
             self.stopping_history[key].append(new_config_acq.item())
 
         elif (stopping_criteria == "UCB-LCB"):  
-            key_1 = f'Expected-Min-Regret-Gap'
-            key_2 = f'UCB-LCB'
-            for key in [key_1, key_2]:
-                if key not in self.stopping_history:
-                    self.stopping_history[key] = [np.nan]  # initialize if missing 
             
+            key = f'UCB-LCB'
+            self.if_not_exist_create_key(key) 
+
             UCB = UpperConfidenceBound(model=self.model, maximize=self.maximize, beta=2 * np.log(self.dim * ((self.iteration + 1) ** 2) * (math.pi ** 2) / (6 * 0.1)) / 5)
             LCB = LowerConfidenceBound(model=self.model, maximize=self.maximize, beta=2 * np.log(self.dim * ((self.iteration + 1) ** 2) * (math.pi ** 2) / (6 * 0.1)) / 5)
-            beta = 2 * np.log(self.dim * ((self.iteration + 1) ** 2) * (math.pi ** 2) / (6 * 0.1)) / 5 
-            print(f"beta: {beta}")
-            if (self.dim == 1):
-                UCB_acq = UCB.forward(candidates.unsqueeze(1))
-                LCB_acq = LCB.forward(self.x.unsqueeze(1))
-                # LCB_acq = LCB.forward(candidates.unsqueeze(1))
-                # print("mask:", self.mask)
-                # 7.5. Compute κ_{t−1} = UCB - LCB gap. #[~self.mask]
-                # print("mask", self.mask)
-                # print("no mask", ~self.mask)
-                # print(LCB_acq[~self.mask]) 
-                kappa = torch.max(UCB_acq) - torch.max(LCB_acq)
+            if (self.maximize):
+                optimistic_CB = UCB; pessimistic_CB = LCB; maximize_factor = 1
             else:
-                candidates, UCB_acq = optimize_acqf(
-                        acq_function=UCB,
+                optimistic_CB = LCB; pessimistic_CB = UCB; maximize_factor = -1
+            # print(f"beta: {beta}")
+            if (self.dim == 1):
+                optimistic_acq = optimistic_CB.forward(candidates.unsqueeze(1))
+                pessimistic_acq = pessimistic_CB.forward(self.x.unsqueeze(1))
+                kappa = torch.max(maximize_factor*optimistic_acq) - torch.max(maximize_factor*pessimistic_acq)
+            else:
+                candidates, optimistic_acq = optimize_acqf(
+                        acq_function=optimistic_CB,
                         bounds=self.bounds,
                         q=1,
                         num_restarts=10*self.dim,
@@ -587,13 +465,46 @@ class BayesianOptimizer:
                         gen_candidates=gen_candidates_torch
                     ) 
 
-                print(candidates.shape)
-                LCB_acq = LCB.forward(self.x.unsqueeze(1))
-                print(f"UCB {UCB_acq} and LCB {torch.max(LCB_acq)}")
-                kappa = UCB_acq - torch.max(LCB_acq)
-                print(f"kappa: {kappa}")
+                # print(candidates.shape)
+                pessimistic_acq = pessimistic_CB.forward(self.x.unsqueeze(1))
+                # print(f"UCB {UCB_acq} and LCB {torch.max(LCB_acq)}")
+                
+                kappa = maximize_factor*optimistic_acq - torch.max(maximize_factor*pessimistic_acq)
+                # print(f"kappa: {kappa}")
                 # kappa = torch.max(UCB_acq) - torch.max(LCB_acq)
+            self.stopping_history[key].append(kappa.item())
+        
+        elif (stopping_criteria == "Expected_Min_Regret_Gap"): 
+            key = f'Expected-Min-Regret-Gap'
+            self.if_not_exist_create_key(key) 
             
+            UCB = UpperConfidenceBound(model=self.model, maximize=self.maximize, beta=2 * np.log(self.dim * ((self.iteration + 1) ** 2) * (math.pi ** 2) / (6 * 0.1)) / 5)
+            LCB = LowerConfidenceBound(model=self.model, maximize=self.maximize, beta=2 * np.log(self.dim * ((self.iteration + 1) ** 2) * (math.pi ** 2) / (6 * 0.1)) / 5)
+            if (self.maximize):
+                optimistic_CB = UCB; pessimistic_CB = LCB; maximize_factor = 1
+            else:
+                optimistic_CB = LCB; pessimistic_CB = UCB; maximize_factor = -1
+            # print(f"beta: {beta}")
+            if (self.dim == 1):
+                optimistic_acq = optimistic_CB.forward(candidates.unsqueeze(1))
+                pessimistic_acq = pessimistic_CB.forward(self.x.unsqueeze(1))
+                kappa = torch.max(maximize_factor*optimistic_acq) - torch.max(maximize_factor*pessimistic_acq)
+            else:
+                candidates, optimistic_acq = optimize_acqf(
+                        acq_function=optimistic_CB,
+                        bounds=self.bounds,
+                        q=1,
+                        num_restarts=10*self.dim,
+                        raw_samples=1024*self.dim,
+                        gen_candidates=gen_candidates_torch
+                    ) 
+
+                # print(candidates.shape)
+                pessimistic_acq = pessimistic_CB.forward(self.x.unsqueeze(1))
+                # print(f"UCB {UCB_acq} and LCB {torch.max(LCB_acq)}")
+                
+                kappa = maximize_factor*optimistic_acq - torch.max(maximize_factor*pessimistic_acq)
+    
             
             # 7.1. Get the posterior mean for old and new GPs at the new and old best points.
             # new_config_x and old_config_x should be the configurations corresponding to the current
@@ -647,13 +558,8 @@ class BayesianOptimizer:
 
             # 7.8. Final expression for ΔR̃_t (the expected minimal regret gap).
             exp_min_regret_gap = delta_mu + ei_diff + kappa.item() * np.sqrt(0.5 * kl)
+            self.stopping_history[key].append(exp_min_regret_gap.item())
             
-            self.stopping_history[key_1].append(exp_min_regret_gap.item())
-            
-            self.stopping_history[key_2].append(kappa.item())
-
-        
-
     def update_cost(self, new_point):
         if callable(self.cost):
             # If self.cost is a function, call it and update cumulative cost
@@ -679,15 +585,11 @@ class BayesianOptimizer:
         if hasattr(self, 'need_lmbda_update'):
             print("Gittins lmbda:", self.lmbda_history[-1])
         print("Running time:", self.runtime)
-        # print("Stopping criteria history:", self.stopping_history)
         print()
 
     def run(self, num_iterations, acquisition_function_class, **acqf_kwargs):
         self.budget = num_iterations
         if acquisition_function_class in (GittinsIndex, StableGittinsIndex):
-            # print("Gittins lmbda:", acqf_kwargs['lmbda'])
-            # print("step_EIpu: ", acqf_kwargs.get('step_EIpu'))
-            # print("step divide: ", acqf_kwargs.get('step_divide'))
             self.lmbda_history = []
             if acqf_kwargs.get('step_EIpu') == True:
                 self.current_lmbda = None
@@ -696,7 +598,6 @@ class BayesianOptimizer:
                 self.current_lmbda = acqf_kwargs['init_lmbda']
                 self.need_lmbda_update = False
                                 
-
         for i in range(num_iterations):
             start = time.process_time()
             self.iterate(acquisition_function_class, **acqf_kwargs)
@@ -705,30 +606,6 @@ class BayesianOptimizer:
             self.runtime = runtime
             self.runtime_history.append(runtime)
             self.print_iteration_info(i)
-
-
-    def run_until_budget(self, budget, acquisition_function_class, **acqf_kwargs):
-        self.budget = budget
-        if acquisition_function_class in (GittinsIndex, StableGittinsIndex):
-            self.lmbda_history = []
-            if acqf_kwargs.get('step_EIpu') == True:
-                self.current_lmbda = None
-                self.need_lmbda_update = True
-            if acqf_kwargs.get('step_divide') == True:
-                self.current_lmbda = acqf_kwargs['init_lmbda']
-                self.need_lmbda_update = False
-
-        i = 0
-        while self.cumulative_cost < self.budget:
-            start = time.process_time()
-            self.iterate(acquisition_function_class, **acqf_kwargs)
-            end = time.process_time()
-            runtime = end - start
-            self.runtime = runtime
-            self.runtime_history.append(runtime)
-            self.print_iteration_info(i)
-            i += 1
-
 
     def get_best_value(self):
         return self.best_f
