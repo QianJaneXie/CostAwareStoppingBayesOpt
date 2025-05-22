@@ -25,6 +25,8 @@ The implementation of PBGI, LogEIC, and LCB can be found in `pandora_automl/acqu
   - 1D Bayesian regret
   - 8D Bayesian regret (continuous optimizer)
   - Empirical (LCBench)
+    - Known cost
+    - Unknown cost 
   - Timing
 - **Illustrations**
   - Stopping behaviors of PBGI and EIPC under large and small evaluation costs
