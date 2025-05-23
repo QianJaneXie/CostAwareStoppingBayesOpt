@@ -12,11 +12,13 @@ from pandora_automl.acquisition.gittins import GittinsIndex
 from pandora_automl.acquisition.stable_gittins import StableGittinsIndex
 from pandora_automl.acquisition.log_ei import LogExpectedImprovement
 from pandora_automl.acquisition.log_ei_puc import LogExpectedImprovementWithCost
-from bayesianoptimizer import BayesianOptimizer
+from scripts.bayesianoptimizer import BayesianOptimizer
+
 
 import numpy as np
 import matplotlib.pyplot as plt
 import wandb
+from wandb import Settings, init
 import os
 import math
 import time
@@ -240,16 +242,18 @@ def run_bayesopt_experiment(config):
     regret_history = Optimizer.get_regret_history(global_optimum_value.item())
     acq_history = Optimizer.get_acq_history()
     stopping_history = Optimizer.get_stopping_history()
+    lmbda_history = Optimizer.get_lmbda_history()
 
     print("Cost history:", cost_history)
     print("Best history:", best_history)
     print("Regret history:", regret_history)
     print("Acquisition history:", acq_history)
     print("Stopping history:", stopping_history)
+    print("Lambda history:", lmbda_history)
 
     print()
     
-    return (global_optimum_value.item(), cost_history, best_history, regret_history, acq_history, stopping_history)
+    return (global_optimum_value.item(), cost_history, best_history, regret_history, acq_history, stopping_history, lmbda_history)
 
 # Initialize wandb
 
@@ -264,12 +268,22 @@ except wandb.errors.UsageError:
 config = run.config
 print(config)
 
-(global_optimum_value, cost_history, best_history, regret_history, acq_history, stopping_history) = run_bayesopt_experiment(run.config)
+(global_optimum_value, cost_history, best_history, regret_history, acq_history, stopping_history, lmbda_history) = run_bayesopt_experiment(run.config)
 
 
 run.log({"global optimum value": global_optimum_value})
 
 lmbdas = [0.1, 0.01, 0.001]
+if 'include_prb' not in config:
+    include_prb = (config['dim'] == 1)
+else:
+    include_prb = config['include_prb']
+
+if 'include_time_log' not in config:
+    include_time_log = False
+else:
+    include_time_log = config['include_time_log']
+
 # Log full info
 for idx in range(len(cost_history)):
     log_dict = {
@@ -282,9 +296,19 @@ for idx in range(len(cost_history)):
         "StablePBGI(0.001)": stopping_history['StablePBGI(0.001)'][idx], 
         "LogEIC acq": stopping_history['LogEIC'][idx],
         "UCB-LCB acq": stopping_history['UCB-LCB'][idx],
-        "Regret-Gap acq": stopping_history['Expected-Min-Regret-Gap'][idx],
-        "PRB_0.1": stopping_history['PRB_0.1'][idx],
+        "Regret-Gap acq": stopping_history['Expected-Min-Regret-Gap'][idx]
     }
+    if (include_prb):
+        log_dict["PRB_0.1"] = stopping_history['PRB_0.1'][idx] 
+    if (include_time_log):
+        log_dict["StablePBGI(0.1)_time"] = stopping_history['StablePBGI(0.1)_time'][idx]
+        log_dict["StablePBGI(0.01)_time"] = stopping_history['StablePBGI(0.01)_time'][idx] 
+        log_dict["StablePBGI(0.001)_time"] = stopping_history['StablePBGI(0.001)_time'][idx]
+        log_dict["LogEIC_time"] = stopping_history['LogEIC_time'][idx]
+        log_dict["UCB-LCB_time"] = stopping_history['UCB-LCB_time'][idx]
+        log_dict["Regret-Gap_time"] = stopping_history['Expected_Min_Regret_Gap_time'][idx] 
+        if (include_prb): 
+            log_dict["PRB_0.1_time"] = stopping_history['PRB_0.1_time'][idx]  
     run.log(log_dict)
-    time.sleep(0.5)  # Delay of 0.5s per entry
+    time.sleep(0.1)  
 run.finish()
