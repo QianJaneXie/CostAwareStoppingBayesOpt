@@ -20,7 +20,7 @@ setup(
     name="pandora_automl",
     version="1.0",
     description="Cost-aware Stopping for Bayesian Optimization",
-    author="Qian Xie and Linda Cai",
+    author="Qian Xie",
     python_requires='>=3.9',
     packages=["pandora_automl"],
     install_requires=requirements
