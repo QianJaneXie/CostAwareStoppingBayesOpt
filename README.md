@@ -3,22 +3,22 @@
 
 ## Combinations of acquisiton function and stopping rules
 - **Acquisition fuctions**:
-  - PBGI
-  - LogEIC
-  - LCB
-  - TS
+  - the Pandora's Box Gittins index (PBGI)
+  - log expected improvement per cost (LogEIPC)
+  - lower confidence bound (LCB)
+  - Thompson sampling (TS)
 - **Our stopping rules**:
-  - PBGI/LogEIC
+  - PBGI/LogEIPC
 - **Baseline stopping rules**:
-  - LogEIC-med
-  - SRGap-med
+  - LogEIPC-med
+  - gap of expected minimum simple regrets (SRGap-med)
   - UCB-LCB
-  - PRB
-  - GSS
+  - Probabilistic Regret Bound (PRB)
+  - Global Stopping Strategy (GSS)
   - Convergence
   - Hindsight 
 
-The implementation of PBGI, LogEIC, and LCB can be found in `pandora_automl/acquisition`.
+The implementation of PBGI, LogEIPC, and LCB can be found in `pandora_automl/acquisition`.
  
 ## Contexts
 - **Experiments**
@@ -29,4 +29,4 @@ The implementation of PBGI, LogEIC, and LCB can be found in `pandora_automl/acqu
     - Unknown cost 
   - Timing
 - **Illustrations**
-  - Stopping behaviors of PBGI and EIPC under large and small evaluation costs
+  - Stopping behaviors of PBGI and LogEIPC under large and small evaluation costs
