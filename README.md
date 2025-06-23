@@ -13,8 +13,8 @@
   - LogEIPC-med
   - gap of expected minimum simple regrets (SRGap-med)
   - UCB-LCB
-  - Probabilistic Regret Bound (PRB)
-  - Global Stopping Strategy (GSS)
+  - probabilistic regret bound (PRB)
+  - global stopping strategy (GSS)
   - Convergence
   - Hindsight 
 
