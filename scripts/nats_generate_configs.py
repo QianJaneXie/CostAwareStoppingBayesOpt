@@ -6,10 +6,10 @@ import os
 dataset_names = ['cifar10-valid', 'cifar100', 'ImageNet16-120']
 seeds = list(range(50))
 acquisition_functions = [
-    'StablePBGI(1e-3)',
-    'StablePBGI(1e-4)',
-    'StablePBGI(1e-5)',
-    'LogEIC',
+    'PBGI(1e-4)',
+    'PBGI(1e-5)',
+    'PBGI(1e-6)',
+    'LogEIPC',
     'LCB',
     'TS'
 ]
