@@ -81,10 +81,10 @@ def run_bayesopt_experiment(bayesopt_config):
     ts_seed  = seed + 1
 
     acq_history = {
-        'StablePBGI(1e-3)': [np.nan],
-        'StablePBGI(1e-4)': [np.nan],
-        'StablePBGI(1e-5)': [np.nan],
-        'LogEIC': [np.nan],
+        'PBGI(1e-4)': [np.nan],
+        'PBGI(1e-5)': [np.nan],
+        'PBGI(1e-6)': [np.nan],
+        'LogEIPC': [np.nan],
         'regret upper bound': [np.nan],
         'exp min regret gap': [np.nan],
         'PRB': [np.nan]
@@ -98,22 +98,22 @@ def run_bayesopt_experiment(bayesopt_config):
         best_f = y.min()
             
         # 3. Define the acquisition function.
-        StablePBGI_1e_3 = StableGittinsIndex(model=model, maximize=maximize, lmbda=1e-3)
-        StablePBGI_1e_4 = StableGittinsIndex(model=model, maximize=maximize, lmbda=1e-4)
-        StablePBGI_1e_5 = StableGittinsIndex(model=model, maximize=maximize, lmbda=1e-5)
-        LogEIC = LogExpectedImprovementWithCost(model=model, best_f=best_f, maximize=maximize)
+        PBGI_1e_4 = StableGittinsIndex(model=model, maximize=maximize, lmbda=1e-4)
+        PBGI_1e_5 = StableGittinsIndex(model=model, maximize=maximize, lmbda=1e-5)
+        PBGI_1e_6 = StableGittinsIndex(model=model, maximize=maximize, lmbda=1e-6)
+        LogEIPC = LogExpectedImprovementWithCost(model=model, best_f=best_f, maximize=maximize)
         beta = 2 * np.log(dim * ((i + 1) ** 2) * (math.pi ** 2) / (6 * 0.1)) / 5
         UCB = UpperConfidenceBound(model=model, maximize=maximize, beta=beta)
         LCB = LowerConfidenceBound(model=model, maximize=maximize, beta=beta)
 
         # 4. Evaluate the acquisition function on all candidate x's.
-        StablePBGI_1e_3_acq = StablePBGI_1e_3.forward(all_x.unsqueeze(1), cost_X = estimated_costs)
-        StablePBGI_1e_3_acq[config_id_history] = y.squeeze(-1)
-        StablePBGI_1e_4_acq = StablePBGI_1e_4.forward(all_x.unsqueeze(1), cost_X = estimated_costs)
-        StablePBGI_1e_4_acq[config_id_history] = y.squeeze(-1)
-        StablePBGI_1e_5_acq = StablePBGI_1e_5.forward(all_x.unsqueeze(1), cost_X = estimated_costs)
-        StablePBGI_1e_5_acq[config_id_history] = y.squeeze(-1)
-        LogEIC_acq = LogEIC.forward(all_x.unsqueeze(1), cost_X = estimated_costs)
+        PBGI_1e_4_acq = PBGI_1e_4.forward(all_x.unsqueeze(1), cost_X = estimated_costs)
+        PBGI_1e_4_acq[config_id_history] = y.squeeze(-1)
+        PBGI_1e_5_acq = PBGI_1e_5.forward(all_x.unsqueeze(1), cost_X = estimated_costs)
+        PBGI_1e_5_acq[config_id_history] = y.squeeze(-1)
+        PBGI_1e_6_acq = PBGI_1e_6.forward(all_x.unsqueeze(1), cost_X = estimated_costs)
+        PBGI_1e_6_acq[config_id_history] = y.squeeze(-1)
+        LogEIPC_acq = LogEIPC.forward(all_x.unsqueeze(1), cost_X = estimated_costs)
         UCB_acq = UCB.forward(all_x.unsqueeze(1))
         LCB_acq = LCB.forward(all_x.unsqueeze(1))
 
@@ -123,20 +123,20 @@ def run_bayesopt_experiment(bayesopt_config):
         mask[config_id_history] = False
         candidate_ids = all_ids[mask]
         
-        if acq == "StablePBGI(1e-3)":
-            candidate_acqs = StablePBGI_1e_3_acq[mask]
+        if acq == "PBGI(1e-4)":
+            candidate_acqs = PBGI_1e_4_acq[mask]
             new_config_id = candidate_ids[torch.argmin(candidate_acqs)]
             new_config_acq = torch.min(candidate_acqs)
-        if acq == "StablePBGI(1e-4)":
-            candidate_acqs = StablePBGI_1e_4_acq[mask]
+        if acq == "PBGI(1e-5)":
+            candidate_acqs = PBGI_1e_5_acq[mask]
             new_config_id = candidate_ids[torch.argmin(candidate_acqs)]
             new_config_acq = torch.min(candidate_acqs)
-        if acq == "StablePBGI(1e-5)":
-            candidate_acqs = StablePBGI_1e_5_acq[mask]
+        if acq == "PBGI(1e-6)":
+            candidate_acqs = PBGI_1e_6_acq[mask]
             new_config_id = candidate_ids[torch.argmin(candidate_acqs)]
             new_config_acq = torch.min(candidate_acqs)
-        if acq == "LogEIC":
-            candidate_acqs = LogEIC_acq[mask]
+        if acq == "LogEIPC":
+            candidate_acqs = LogEIPC_acq[mask]
             new_config_id = candidate_ids[torch.argmax(candidate_acqs)]
             new_config_acq = torch.max(candidate_acqs)
         if acq == "LCB":
@@ -195,7 +195,7 @@ def run_bayesopt_experiment(bayesopt_config):
 
         # 7.7. Compute ei_diff, the expected-improvement gap difference.
         # If new_config_x and old_config_x are (approximately) equal, we set ei_diff to zero.
-        if not torch.allclose(new_config_x, old_config_x, atol=1e-4):
+        if not torch.allclose(new_config_x, old_config_x, atol=1e-5):
             # We use the new model's posterior for these two points.
             # new_mean and new_covar already contain the predictions.
             # Compute the difference in means:
@@ -233,10 +233,10 @@ def run_bayesopt_experiment(bayesopt_config):
         num_samples = min(math.ceil(num_samples * 1.5), 1000)
 
         # Other stopping rules
-        acq_history['StablePBGI(1e-3)'].append(torch.min(StablePBGI_1e_3_acq).item())
-        acq_history['StablePBGI(1e-4)'].append(torch.min(StablePBGI_1e_4_acq).item())
-        acq_history['StablePBGI(1e-5)'].append(torch.min(StablePBGI_1e_5_acq).item())
-        acq_history['LogEIC'].append(torch.max(LogEIC_acq[mask]).item())
+        acq_history['PBGI(1e-4)'].append(torch.min(PBGI_1e_4_acq).item())
+        acq_history['PBGI(1e-5)'].append(torch.min(PBGI_1e_5_acq).item())
+        acq_history['PBGI(1e-6)'].append(torch.min(PBGI_1e_6_acq).item())
+        acq_history['LogEIPC'].append(torch.max(LogEIPC_acq[mask]).item())
         
         # 8. Append the new data to our training set.
         x = torch.cat([x, new_config_x.unsqueeze(0)], dim=0)
@@ -257,8 +257,8 @@ def run_bayesopt_experiment(bayesopt_config):
         print(f"  Current best observed: {best_f.item():.4f}", flush=True)
         print()
 
-        del StablePBGI_1e_3, StablePBGI_1e_4, StablePBGI_1e_5
-        del LogEIC, UCB, LCB
+        del PBGI_1e_4, PBGI_1e_5, PBGI_1e_6
+        del LogEIPC, UCB, LCB
         gc.collect()
 
     best_y_history.append(y.min().item())
@@ -303,10 +303,10 @@ def main():
         "estimated cumulative cost": list(map(float, np.cumsum(estimated_cost_history))),
         "current best id": list(map(int, best_id_history)),
         "current best observed": list(map(float, best_y_history)),
-        "StablePBGI(1e-3) acq": list(map(float, acq_history.get('StablePBGI(1e-3)', [np.nan]*len(cost_history)))),
-        "StablePBGI(1e-4) acq": list(map(float, acq_history.get('StablePBGI(1e-4)', [np.nan]*len(cost_history)))),
-        "StablePBGI(1e-5) acq": list(map(float, acq_history.get('StablePBGI(1e-5)', [np.nan]*len(cost_history)))),
-        "LogEIC acq": list(map(float, acq_history.get('LogEIC', [np.nan]*len(cost_history)))),
+        "PBGI(1e-4) acq": list(map(float, acq_history.get('PBGI(1e-4)', [np.nan]*len(cost_history)))),
+        "PBGI(1e-5) acq": list(map(float, acq_history.get('PBGI(1e-5)', [np.nan]*len(cost_history)))),
+        "PBGI(1e-6) acq": list(map(float, acq_history.get('PBGI(1e-6)', [np.nan]*len(cost_history)))),
+        "LogEIPC acq": list(map(float, acq_history.get('LogEIPC', [np.nan]*len(cost_history)))),
         "exp min regret gap": list(map(float, acq_history.get('exp min regret gap', [np.nan]*len(cost_history)))),
         "regret upper bound": list(map(float, acq_history.get('regret upper bound', [np.nan]*len(cost_history)))),
         "PRB": list(map(float, acq_history.get('PRB', [np.nan]*len(cost_history))))
