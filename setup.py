@@ -13,7 +13,8 @@ requirements = [
     "ipywidgets>=8.1.1",
     "scikit-learn>=1.1",
     "pandas>=2.2",
-    "openml>=0.14.2"
+    "openml>=0.14.2",
+    "dill>=0.3.7"
 ]
 
 setup(
