@@ -10,7 +10,7 @@ from gpytorch.mlls import ExactMarginalLogLikelihood
 from gpytorch.likelihoods import FixedNoiseGaussianLikelihood
 from gpytorch.likelihoods.gaussian_likelihood import GaussianLikelihood
 from gpytorch.constraints.constraints import Interval
-import math
+
 
 def fit_gp_model(
         X: Tensor, 
