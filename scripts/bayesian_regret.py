@@ -159,44 +159,7 @@ def run_bayesopt_experiment(config):
         cost=cost_fn
     )
 
-    if policy == 'Gittins_Lambda_1':
-        Optimizer.run(
-            num_iterations=num_iterations, 
-            acquisition_function_class = GittinsIndex,
-            lmbda = 0.1
-        )
-    if policy == 'Gittins_Lambda_01':
-        Optimizer.run(
-            num_iterations=num_iterations, 
-            acquisition_function_class = GittinsIndex,
-            lmbda = 0.01
-        )
-    elif policy == 'Gittins_Lambda_001':
-        Optimizer.run(
-            num_iterations = num_iterations, 
-            acquisition_function_class = GittinsIndex,
-            lmbda = 0.001
-        )
-    elif policy == 'Gittins_Lambda_0001':
-        Optimizer.run(
-            num_iterations = num_iterations, 
-            acquisition_function_class = GittinsIndex,
-            lmbda = 0.0001
-        )
-    elif policy == 'Gittins_Lambda_00001':
-        Optimizer.run(
-            num_iterations = num_iterations, 
-            acquisition_function_class = GittinsIndex,
-            lmbda = 0.00001
-        )
-    elif policy == 'Gittins_Lambda_000001':
-        Optimizer.run(
-            num_iterations = num_iterations, 
-            acquisition_function_class = GittinsIndex,
-            lmbda = 0.000001
-        )
-    elif policy == 'Stable_Gittins_Lambda_1':
-        print("cost function:", cost_fn)
+    if policy == 'Stable_Gittins_Lambda_1':
         Optimizer.run(
             num_iterations=num_iterations, 
             acquisition_function_class = StableGittinsIndex,
@@ -207,7 +170,6 @@ def run_bayesopt_experiment(config):
             num_iterations=num_iterations, 
             acquisition_function_class = StableGittinsIndex,
             lmbda = 0.01,
-            cost = cost_fn
         )
     elif policy == 'Stable_Gittins_Lambda_001':
         Optimizer.run(
