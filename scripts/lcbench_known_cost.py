@@ -63,7 +63,10 @@ def run_bayesopt_experiment(bayesopt_config):
         runtime = bench.query(dataset_name, "time", config_id)[-1]
         all_c.append(runtime)
         model_param = bench.query(dataset_name, "model_parameters", config_id)
-        estimated_costs.append(0.001*model_param)
+        if dataset_name in ['Fashion-MNIST', 'adult', 'higgs', 'volkert']:
+            estimated_costs.append(0.001*model_param)
+        else:
+            estimated_costs.append(0.0006*model_param)
 
     all_x = torch.stack(all_x)
     all_y = torch.tensor(all_y).unsqueeze(1)
@@ -88,24 +91,18 @@ def run_bayesopt_experiment(bayesopt_config):
     old_config_x = x[-1]
 
     # Initialization for probabilistic regret bound (PRB) stopping rule
-    if dataset_name == "Fashion-MNIST":
-        epsilon = 0.05
-    if dataset_name == "higgs":
-        epsilon = 0.14
-    if dataset_name == "adult":
-        epsilon = 0.08
-    if dataset_name == "volkert":
-        epsilon = 0.19
+    best_acc = bench.query_best_final(dataset_name, "final_test_accuracy", "final_test_accuracy", 0)
+    epsilon = 0.5*0.01*(100-best_acc)
     num_samples = 64
 
     # Independent seed for Thompson sampling
     ts_seed  = seed + 1
 
     acq_history = {
-        'StablePBGI(1e-3)': [np.nan],
-        'StablePBGI(1e-4)': [np.nan],
-        'StablePBGI(1e-5)': [np.nan],
-        'LogEIC': [np.nan],
+        'PBGI(1e-3)': [np.nan],
+        'PBGI(1e-4)': [np.nan],
+        'PBGI(1e-5)': [np.nan],
+        'LogEIPC': [np.nan],
         'regret upper bound': [np.nan],
         'exp min regret gap': [np.nan],
         'PRB': [np.nan]
@@ -119,22 +116,22 @@ def run_bayesopt_experiment(bayesopt_config):
         best_f = y.min()
             
         # 3. Define the acquisition function.
-        StablePBGI_1e_3 = StableGittinsIndex(model=model, maximize=maximize, lmbda=1e-3)
-        StablePBGI_1e_4 = StableGittinsIndex(model=model, maximize=maximize, lmbda=1e-4)
-        StablePBGI_1e_5 = StableGittinsIndex(model=model, maximize=maximize, lmbda=1e-5)
-        LogEIC = LogExpectedImprovementWithCost(model=model, best_f=best_f, maximize=maximize)
+        PBGI_1e_3 = StableGittinsIndex(model=model, maximize=maximize, lmbda=1e-3)
+        PBGI_1e_4 = StableGittinsIndex(model=model, maximize=maximize, lmbda=1e-4)
+        PBGI_1e_5 = StableGittinsIndex(model=model, maximize=maximize, lmbda=1e-5)
+        LogEIPC = LogExpectedImprovementWithCost(model=model, best_f=best_f, maximize=maximize)
         beta = 2 * np.log(dim * ((i + 1) ** 2) * (math.pi ** 2) / (6 * 0.1)) / 5
         UCB = UpperConfidenceBound(model=model, maximize=maximize, beta=beta)
         LCB = LowerConfidenceBound(model=model, maximize=maximize, beta=beta)
 
         # 4. Evaluate the acquisition function on all candidate x's.
-        StablePBGI_1e_3_acq = StablePBGI_1e_3.forward(all_x.unsqueeze(1), cost_X = estimated_costs)
-        StablePBGI_1e_3_acq[config_id_history] = y.squeeze(-1)
-        StablePBGI_1e_4_acq = StablePBGI_1e_4.forward(all_x.unsqueeze(1), cost_X = estimated_costs)
-        StablePBGI_1e_4_acq[config_id_history] = y.squeeze(-1)
-        StablePBGI_1e_5_acq = StablePBGI_1e_5.forward(all_x.unsqueeze(1), cost_X = estimated_costs)
-        StablePBGI_1e_5_acq[config_id_history] = y.squeeze(-1)
-        LogEIC_acq = LogEIC.forward(all_x.unsqueeze(1), cost_X = estimated_costs)
+        PBGI_1e_3_acq = PBGI_1e_3.forward(all_x.unsqueeze(1), cost_X = estimated_costs)
+        PBGI_1e_3_acq[config_id_history] = y.squeeze(-1)
+        PBGI_1e_4_acq = PBGI_1e_4.forward(all_x.unsqueeze(1), cost_X = estimated_costs)
+        PBGI_1e_4_acq[config_id_history] = y.squeeze(-1)
+        PBGI_1e_5_acq = PBGI_1e_5.forward(all_x.unsqueeze(1), cost_X = estimated_costs)
+        PBGI_1e_5_acq[config_id_history] = y.squeeze(-1)
+        LogEIPC_acq = LogEIPC.forward(all_x.unsqueeze(1), cost_X = estimated_costs)
         UCB_acq = UCB.forward(all_x.unsqueeze(1))
         LCB_acq = LCB.forward(all_x.unsqueeze(1))
 
@@ -144,20 +141,20 @@ def run_bayesopt_experiment(bayesopt_config):
         mask[config_id_history] = False
         candidate_ids = all_ids[mask]
         
-        if acq == "StablePBGI(1e-3)":
-            candidate_acqs = StablePBGI_1e_3_acq[mask]
+        if acq == "PBGI(1e-3)":
+            candidate_acqs = PBGI_1e_3_acq[mask]
             new_config_id = candidate_ids[torch.argmin(candidate_acqs)]
             new_config_acq = torch.min(candidate_acqs)
-        if acq == "StablePBGI(1e-4)":
-            candidate_acqs = StablePBGI_1e_4_acq[mask]
+        if acq == "PBGI(1e-4)":
+            candidate_acqs = PBGI_1e_4_acq[mask]
             new_config_id = candidate_ids[torch.argmin(candidate_acqs)]
             new_config_acq = torch.min(candidate_acqs)
-        if acq == "StablePBGI(1e-5)":
-            candidate_acqs = StablePBGI_1e_5_acq[mask]
+        if acq == "PBGI(1e-5)":
+            candidate_acqs = PBGI_1e_5_acq[mask]
             new_config_id = candidate_ids[torch.argmin(candidate_acqs)]
             new_config_acq = torch.min(candidate_acqs)
-        if acq == "LogEIC":
-            candidate_acqs = LogEIC_acq[mask]
+        if acq == "LogEIPC":
+            candidate_acqs = LogEIPC_acq[mask]
             new_config_id = candidate_ids[torch.argmax(candidate_acqs)]
             new_config_acq = torch.max(candidate_acqs)
         if acq == "LCB":
@@ -254,10 +251,10 @@ def run_bayesopt_experiment(bayesopt_config):
         num_samples = min(math.ceil(num_samples * 1.5), 1000)
 
         # Other stopping rules
-        acq_history['StablePBGI(1e-3)'].append(torch.min(StablePBGI_1e_3_acq).item())
-        acq_history['StablePBGI(1e-4)'].append(torch.min(StablePBGI_1e_4_acq).item())
-        acq_history['StablePBGI(1e-5)'].append(torch.min(StablePBGI_1e_5_acq).item())
-        acq_history['LogEIC'].append(torch.max(LogEIC_acq[mask]).item())
+        acq_history['PBGI(1e-3)'].append(torch.min(PBGI_1e_3_acq).item())
+        acq_history['PBGI(1e-4)'].append(torch.min(PBGI_1e_4_acq).item())
+        acq_history['PBGI(1e-5)'].append(torch.min(PBGI_1e_5_acq).item())
+        acq_history['LogEIPC'].append(torch.max(LogEIPC_acq[mask]).item())
         
         # 8. Append the new data to our training set.
         x = torch.cat([x, new_config_x.unsqueeze(0)], dim=0)
@@ -274,12 +271,12 @@ def run_bayesopt_experiment(bayesopt_config):
         print(f"  Acquisition value: {new_config_acq.item():.4f}")
         print(f"  Objective (validation error): {new_config_y.item():.4f}")
         print(f"  Cost (runtime): {new_config_c.item():.4f}")
-        print(f"  Estimated cost (0.001*model_parameters): {new_config_estimated_c.item():.4f}")
+        print(f"  Estimated cost (0.001*model_parameters or 0.0006*model_parameters): {new_config_estimated_c.item():.4f}")
         print(f"  Current best observed: {best_f.item():.4f}")
         print()
 
-        del StablePBGI_1e_3, StablePBGI_1e_4, StablePBGI_1e_5
-        del LogEIC, UCB, LCB
+        del PBGI_1e_3, PBGI_1e_4, PBGI_1e_5
+        del LogEIPC, UCB, LCB
         gc.collect()
 
     best_y_history.append(y.min().item())
@@ -310,10 +307,10 @@ for idx in range(len(cost_history)):
         'estimated cumulative cost': estimated_cumulative_costs[idx],
         "current best id": best_id_history[idx],
         "current best observed": best_y_history[idx],
-        "StablePBGI(1e-3) acq": acq_history['StablePBGI(1e-3)'][idx],
-        "StablePBGI(1e-4) acq": acq_history['StablePBGI(1e-4)'][idx],
-        "StablePBGI(1e-5) acq": acq_history['StablePBGI(1e-5)'][idx],
-        "LogEIC acq": acq_history['LogEIC'][idx],
+        "PBGI(1e-3) acq": acq_history['PBGI(1e-3)'][idx],
+        "PBGI(1e-4) acq": acq_history['PBGI(1e-4)'][idx],
+        "PBGI(1e-5) acq": acq_history['PBGI(1e-5)'][idx],
+        "LogEIPC acq": acq_history['LogEIPC'][idx],
         "exp min regret gap": acq_history['exp min regret gap'][idx],
         "regret upper bound": acq_history['regret upper bound'][idx],
         "PRB": acq_history['PRB'][idx]
