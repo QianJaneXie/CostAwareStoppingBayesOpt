@@ -7,20 +7,12 @@ from botorch.acquisition import ExpectedImprovement, LogExpectedImprovement, Upp
 from botorch.generation.gen import gen_candidates_torch
 from botorch.acquisition import PosteriorMean
 from pandora_automl.acquisition.lcb import LowerConfidenceBound
-from pandora_automl.acquisition.log_ei import LogVanillaExpectedImprovement, StableExpectedImprovement
 from botorch.acquisition.multi_step_lookahead import warmstart_multistep
 from pandora_automl.acquisition.gittins import GittinsIndex
 from pandora_automl.acquisition.stable_gittins import StableGittinsIndex
-from pandora_automl.acquisition.ei_puc import ExpectedImprovementWithCost
 from pandora_automl.acquisition.log_ei_puc import LogExpectedImprovementWithCost
-from pandora_automl.acquisition.multi_step_ei import MultiStepLookaheadEI
-from pandora_automl.acquisition.budgeted_multi_step_ei import BudgetedMultiStepLookaheadEI
 from botorch.sampling.pathwise import draw_matheron_paths
 from botorch.utils.sampling import optimize_posterior_samples
-from botorch.acquisition.predictive_entropy_search import qPredictiveEntropySearch
-from botorch.acquisition.max_value_entropy_search import qMaxValueEntropy,qMultiFidelityMaxValueEntropy
-from botorch.acquisition.cost_aware import InverseCostWeightedUtility
-from botorch.models.deterministic import GenericDeterministicModel
 from botorch.optim import optimize_acqf
 from scipy.stats import norm
 from copy import copy
@@ -120,21 +112,38 @@ class BayesianOptimizer:
         is_pes = False
         gaussian_likelihood = False
     
-        if acquisition_function_class in (ExpectedImprovementWithCost, LogExpectedImprovementWithCost, GittinsIndex, BudgetedMultiStepLookaheadEI):
+        # Determine if we need cost information for this acquisition function
+        if acquisition_function_class in (LogExpectedImprovementWithCost, GittinsIndex, StableGittinsIndex):
             unknown_cost = self.unknown_cost
+            use_cost = True
         else:
+            # For cost-unaware methods (UCB, TS, LogEI, etc.), use single-output model
             unknown_cost = False
+            use_cost = False
 
         self.old_model = self.model
-        model = fit_gp_model(
-            X=self.x.detach(), 
-            objective_X=self.y.detach(), 
-            cost_X=self.c.detach(), 
-            unknown_cost=unknown_cost,
-            kernel=self.kernel,
-            gaussian_likelihood=gaussian_likelihood,
-            output_standardize=self.output_standardize,
-        )
+        # For cost-unaware methods, fit single-output model using only objective
+        if use_cost:
+            model = fit_gp_model(
+                X=self.x.detach(), 
+                objective_X=self.y.detach(), 
+                cost_X=self.c.detach(), 
+                unknown_cost=unknown_cost,
+                kernel=self.kernel,
+                gaussian_likelihood=gaussian_likelihood,
+                output_standardize=self.output_standardize,
+            )
+        else:
+            # Fit single-output model for cost-unaware methods
+            model = fit_gp_model(
+                X=self.x.detach(), 
+                objective_X=self.y.detach(), 
+                cost_X=None, 
+                unknown_cost=False,
+                kernel=self.kernel,
+                gaussian_likelihood=gaussian_likelihood,
+                output_standardize=self.output_standardize,
+            )
         self.model = model
         if (self.old_model is None):
             self.old_model = model
@@ -156,45 +165,7 @@ class BayesianOptimizer:
         if acquisition_function_class in (GittinsIndex, StableGittinsIndex):
             acqf_args['maximize'] = self.maximize
             
-            if acqf_kwargs.get('step_EIpu') == True:
-                if self.need_lmbda_update:
-                    if callable(self.cost) or callable(self.objective_cost):
-                        # Optimize EIpu first to get new_point_EIpu
-                        EIpu = ExpectedImprovementWithCost(model=model, best_f=self.best_f, maximize=self.maximize, cost=self.cost, unknown_cost=self.unknown_cost)
-                        _, new_point_EIpu = optimize_acqf(
-                            acq_function=EIpu,
-                            bounds=self.bounds,
-                            q=1,
-                            num_restarts=10*self.dim,
-                            raw_samples=200*self.dim,
-                            options={'method': 'L-BFGS-B'},
-                        )
-                        if self.current_lmbda == None:
-                            self.current_lmbda = new_point_EIpu.item() / 2
-                        else:
-                            self.current_lmbda = min(self.current_lmbda, new_point_EIpu.item() / 2)
-
-                    else:
-                        # Optimize EI first to get new_point_EI
-                        EI = ExpectedImprovement(model=model, best_f=self.best_f, maximize=self.maximize)
-                        _, new_point_EI = optimize_acqf(
-                            acq_function=EI,
-                            bounds=self.bounds,
-                            q=1,
-                            num_restarts=10*self.dim,
-                            raw_samples=200*self.dim,
-                            options={'method': 'L-BFGS-B'},
-                        )
-                        if self.current_lmbda == None:
-                            self.current_lmbda = new_point_EI.item() / 2
-                        else:
-                            self.current_lmbda = min(self.current_lmbda, new_point_EI.item() / 2)
-                    self.need_lmbda_update = False  # Reset the flag
-                
-                acqf_args['lmbda'] = self.current_lmbda
-                self.lmbda_history.append(self.current_lmbda)
-                
-            elif acqf_kwargs.get('step_divide') == True:
+            if acqf_kwargs.get('step_divide') == True:
                 if self.need_lmbda_update:
                     self.current_lmbda = self.current_lmbda / acqf_kwargs.get('alpha')
                     self.need_lmbda_update = False
@@ -218,12 +189,12 @@ class BayesianOptimizer:
             acqf_args['maximize'] = self.maximize
         
         
-        elif acquisition_function_class in (ExpectedImprovement, LogExpectedImprovement, LogVanillaExpectedImprovement, StableExpectedImprovement):
+        elif acquisition_function_class == LogExpectedImprovement:
             acqf_args['best_f'] = self.best_f
             acqf_args['maximize'] = self.maximize
 
         
-        elif acquisition_function_class in (ExpectedImprovementWithCost, LogExpectedImprovementWithCost):
+        elif acquisition_function_class == LogExpectedImprovementWithCost:
             acqf_args['best_f'] = self.best_f
             acqf_args['maximize'] = self.maximize
             acqf_args['cost'] = self.cost
@@ -284,11 +255,21 @@ class BayesianOptimizer:
         self.y = torch.cat((self.y, new_value.detach()))
         
         # Record statistics about different stopping rules
-        self.log_time(self.update_stopping_criteria, "PRB", skip_prb=False)
-        self.log_time(self.update_stopping_criteria, "StablePBGI", lmbda=0.1)
-        self.log_time(self.update_stopping_criteria, "StablePBGI", lmbda=0.01)
+        # Only compute PRB if include_prb is True (defaults to False if not set)
+        if getattr(self, 'include_prb', False):
+            self.log_time(self.update_stopping_criteria, "PRB", skip_prb=False)
+        else:
+            # Initialize PRB key with NaN if not computing it
+            key = 'PRB_0.1'
+            self.if_not_exist_create_key(key)
+            if len(self.stopping_history[key]) == 0:
+                self.stopping_history[key].append(np.nan)
+            else:
+                self.stopping_history[key].append(self.stopping_history[key][-1])
         self.log_time(self.update_stopping_criteria, "StablePBGI", lmbda=0.001)
-        self.log_time(self.update_stopping_criteria, "LogEIC")
+        self.log_time(self.update_stopping_criteria, "StablePBGI", lmbda=0.0001)
+        self.log_time(self.update_stopping_criteria, "StablePBGI", lmbda=0.00001)
+        self.log_time(self.update_stopping_criteria, "LogEIPC")
         self.log_time(self.update_stopping_criteria, "UCB-LCB")
         self.log_time(self.update_stopping_criteria, "Expected_Min_Regret_Gap")
 
@@ -337,10 +318,8 @@ class BayesianOptimizer:
     def update_stopping_criteria(self, stopping_criteria, lmbda=0.01, skip_prb=True):
         '''
         This function implements the following stopping rules: 
-                                        'StablePBGI(1e-1)',
-                                        'StablePBGI(1e-2)',
-                                        'StablePBGI(1e-3)',
-                                        'LogEIC',
+                                        'PBGI',
+                                        'LogEIPC',
                                         'regret upper bound',
                                         'exp min regret gap',
                                         'PRB'
@@ -393,7 +372,7 @@ class BayesianOptimizer:
             # 3. Stable PBGI
             key = f'StablePBGI({lmbda})'
             self.if_not_exist_create_key(key) 
-            StablePBGI = StableGittinsIndex(model=self.model, maximize=self.maximize, lmbda=lmbda, cost=self.cost)
+            StablePBGI = StableGittinsIndex(model=self.model, maximize=self.maximize, lmbda=lmbda, cost=self.cost, unknown_cost=self.unknown_cost)
             maximize_factor = 1 if self.maximize else -1
             if (self.dim == 1): 
                 StablePBGI_acq = StablePBGI.forward(candidates.unsqueeze(1))
@@ -418,24 +397,24 @@ class BayesianOptimizer:
             # print("StablePBGI")
             # print(f'Lambda: {lmbda}, acquisition: {new_config_acq.item()}') 
 
-        elif (stopping_criteria == "LogEIC"):
-            key = 'LogEIC'
+        elif (stopping_criteria == "LogEIPC"):
+            key = 'LogEIPC'
             self.if_not_exist_create_key(key)
-            LogEIC = LogExpectedImprovementWithCost(model=self.model, best_f=self.best_f, maximize=self.maximize, cost=self.cost)
-            # maximization or minimization objective has no effect on LogEIC
+            LogEIPC = LogExpectedImprovementWithCost(model=self.model, best_f=self.best_f, maximize=self.maximize, cost=self.cost, unknown_cost=self.unknown_cost)
+            # maximization or minimization objective has no effect on LogEIPC
             if (self.dim == 1):
-                LogEIC_acq = LogEIC.forward(candidates.unsqueeze(1)) 
-                new_config_acq = torch.max(LogEIC_acq[self.mask]).detach()
+                LogEIPC_acq = LogEIPC.forward(candidates.unsqueeze(1)) 
+                new_config_acq = torch.max(LogEIPC_acq[self.mask]).detach()
             else:
-                candidates, LogEIC_acq = optimize_acqf(
-                        acq_function=LogEIC,
+                candidates, LogEIPC_acq = optimize_acqf(
+                        acq_function=LogEIPC,
                         bounds=self.bounds,
                         q=1,
                         num_restarts=10*self.dim,
                         raw_samples=1024*self.dim,
                         gen_candidates=gen_candidates_torch
                     )
-                new_config_acq = LogEIC_acq # torch.max(LogEIC_acq)
+                new_config_acq = LogEIPC_acq # torch.max(LogEIPC_acq)
         
             self.stopping_history[key].append(new_config_acq.item())
 
@@ -591,9 +570,6 @@ class BayesianOptimizer:
         self.budget = num_iterations
         if acquisition_function_class in (GittinsIndex, StableGittinsIndex):
             self.lmbda_history = []
-            if acqf_kwargs.get('step_EIpu') == True:
-                self.current_lmbda = None
-                self.need_lmbda_update = True
             if acqf_kwargs.get('step_divide') == True:
                 self.current_lmbda = acqf_kwargs['init_lmbda']
                 self.need_lmbda_update = False
