@@ -340,7 +340,9 @@ class BayesianOptimizer:
         if func.__name__ == "update_stopping_criteria":
             crit = args[0]                                    # e.g. "PRB", "StablePBGI"
             if crit == "StablePBGI":
-                crit_key = f"StablePBGI({kwargs.get('lmbda', 0.01)})"
+                lmbda_val = kwargs.get('lmbda', 0.01)
+                # Format lmbda consistently: use decimal notation to match access pattern
+                crit_key = f"StablePBGI({lmbda_val:.10f}".rstrip('0').rstrip('.') + ')'
             elif crit == "PRB":                               # keep in sync with ε = 0.1
                 crit_key = "PRB_0.1"
             else:
@@ -408,7 +410,9 @@ class BayesianOptimizer:
  
         elif (stopping_criteria == "StablePBGI"):
             # 3. Stable PBGI
-            key = f'StablePBGI({lmbda})'
+            # Format lmbda consistently: use decimal notation to match access pattern
+            # Remove trailing zeros and use fixed format for consistency
+            key = f'StablePBGI({lmbda:.10f}'.rstrip('0').rstrip('.') + ')'
             self.if_not_exist_create_key(key) 
             StablePBGI = StableGittinsIndex(model=self.model, maximize=self.maximize, lmbda=lmbda, cost=self.cost, unknown_cost=self.unknown_cost)
             maximize_factor = 1 if self.maximize else -1

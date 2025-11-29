@@ -25,7 +25,7 @@ setup(
     packages=["pandora_automl"],
     install_requires=requirements,
     extras_require={
-        "lunar_lander": ["gymnasium>=0.29.0", "box2d-py>=2.3.8", "pygame>=2.0.0"],
-        "robot_pushing": ["pygame>=2.0.0", "box2d-py>=2.3.8"],
+        "lunar_lander": ["gymnasium>=0.29.0", "box2d>=2.3.10", "pygame>=2.0.0"],
+        "robot_pushing": ["pygame>=2.0.0", "box2d>=2.3.10"],
     }
 )

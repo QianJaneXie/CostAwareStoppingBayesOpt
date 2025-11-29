@@ -195,7 +195,7 @@ def run_bayesopt_experiment(config):
 
 
 if __name__ == "__main__":
-    run = wandb.init(sync_tensorboard=False, settings=wandb.Settings(_disable_stats=True))
+    run = wandb.init()
     config = run.config
     print(config)
 
@@ -207,12 +207,12 @@ if __name__ == "__main__":
         log_dict = {
             "cumulative cost": cost_history[idx],
             "current best observed": best_history[idx],
-            "PBGI(1e-3) acq": stopping_history['StablePBGI(0.001)'][idx],
-            "PBGI(1e-4) acq": stopping_history['StablePBGI(0.0001)'][idx],
-            "PBGI(1e-5) acq": stopping_history['StablePBGI(0.00001)'][idx],
-            "LogEIPC acq": stopping_history['LogEIPC'][idx],
-            "exp min regret gap": stopping_history['exp min regret gap'][idx],
-            "regret upper bound": stopping_history['regret upper bound'][idx]
+            "PBGI(1e-3) acq": stopping_history.get('StablePBGI(0.001)', [np.nan] * len(cost_history))[idx],
+            "PBGI(1e-4) acq": stopping_history.get('StablePBGI(0.0001)', [np.nan] * len(cost_history))[idx],
+            "PBGI(1e-5) acq": stopping_history.get('StablePBGI(0.00001)', [np.nan] * len(cost_history))[idx],
+            "LogEIPC acq": stopping_history.get('LogEIPC', [np.nan] * len(cost_history))[idx],
+            "exp min regret gap": stopping_history.get('Expected-Min-Regret-Gap', stopping_history.get('exp min regret gap', [np.nan] * len(cost_history)))[idx],
+            "regret upper bound": stopping_history.get('UCB-LCB', stopping_history.get('regret upper bound', [np.nan] * len(cost_history)))[idx]
         }
         if include_prb and 'PRB_0.1' in stopping_history:
             log_dict["PRB"] = stopping_history['PRB_0.1'][idx]
