@@ -82,18 +82,20 @@ class BayesianOptimizer:
     
 
     def initialize_points(self, initial_points):
-        self.x = initial_points
+        self.x = initial_points.detach() if hasattr(initial_points, 'detach') else initial_points
         if callable(self.objective):
-            self.y = self.objective(initial_points)
+            self.y = self.objective(initial_points).detach()
             if callable(self.cost):
-                self.c = self.cost(initial_points).view(-1)
+                self.c = self.cost(initial_points).view(-1).detach()
             else:
                 self.c = self.DEFAULT_COST
         if callable(self.objective_cost):
-            self.y, self.c = self.objective_cost(initial_points)
+            y, c = self.objective_cost(initial_points)
+            self.y = y.detach()
+            self.c = c.detach()
         if self.noisy_observation:
             noise = torch.randn_like(self.y) * self.noise_level
-            self.y += noise
+            self.y = (self.y + noise).detach()
 
         if self.dim == 1:
             for point in initial_points:
@@ -103,7 +105,8 @@ class BayesianOptimizer:
 
     def update_best(self):
         self.best_f = self.y.max().item() if self.maximize else self.y.min().item()
-        self.best_x = self.x[self.y.argmax()] if self.maximize else self.x[self.y.argmin()]
+        best_idx = self.y.argmax() if self.maximize else self.y.argmin()
+        self.best_x = self.x[best_idx].detach()
         self.best_history.append(self.best_f)
     
     def iterate(self, acquisition_function_class, **acqf_kwargs):
@@ -114,27 +117,47 @@ class BayesianOptimizer:
     
         # Determine if we need cost information for this acquisition function
         if acquisition_function_class in (LogExpectedImprovementWithCost, GittinsIndex, StableGittinsIndex):
-            unknown_cost = self.unknown_cost
             use_cost = True
         else:
             # For cost-unaware methods (UCB, TS, LogEI, etc.), use single-output model
-            unknown_cost = False
             use_cost = False
 
         self.old_model = self.model
-        # For cost-unaware methods, fit single-output model using only objective
-        if use_cost:
+        # Store old single-outcome model if it exists
+        if hasattr(self, 'single_outcome_model'):
+            self.old_single_outcome_model = self.single_outcome_model
+        
+        # Always fit a multi-output model when self.unknown_cost=True (needed for stopping criteria)
+        # Fit a single-output model when self.unknown_cost=False
+        if self.unknown_cost:
+            # Fit multi-output model (needed for cost-aware stopping criteria like StablePBGI, LogEIPC)
             model = fit_gp_model(
                 X=self.x.detach(), 
                 objective_X=self.y.detach(), 
                 cost_X=self.c.detach(), 
-                unknown_cost=unknown_cost,
+                unknown_cost=True,
                 kernel=self.kernel,
                 gaussian_likelihood=gaussian_likelihood,
                 output_standardize=self.output_standardize,
             )
+            self.model = model
+            if (self.old_model is None):
+                self.old_model = model
+            
+            # Also fit a single-output model for cost-unaware acquisition functions and stopping criteria
+            self.single_outcome_model = fit_gp_model(
+                X=self.x.detach(), 
+                objective_X=self.y.detach(), 
+                cost_X=None, 
+                unknown_cost=False,
+                kernel=self.kernel,
+                gaussian_likelihood=gaussian_likelihood,
+                output_standardize=self.output_standardize,
+            )
+            if not hasattr(self, 'old_single_outcome_model') or self.old_single_outcome_model is None:
+                self.old_single_outcome_model = self.single_outcome_model
         else:
-            # Fit single-output model for cost-unaware methods
+            # When unknown_cost=False, fit single-output model
             model = fit_gp_model(
                 X=self.x.detach(), 
                 objective_X=self.y.detach(), 
@@ -144,22 +167,35 @@ class BayesianOptimizer:
                 gaussian_likelihood=gaussian_likelihood,
                 output_standardize=self.output_standardize,
             )
-        self.model = model
-        if (self.old_model is None):
-            self.old_model = model
+            self.model = model
+            if (self.old_model is None):
+                self.old_model = model
+            # When unknown_cost=False, the main model is already single-output
+            self.single_outcome_model = model
+            if not hasattr(self, 'old_single_outcome_model') or self.old_single_outcome_model is None:
+                if self.old_model is not None:
+                    self.old_single_outcome_model = self.old_model
+                else:
+                    self.old_single_outcome_model = self.single_outcome_model
 
-        acqf_args = {'model': model}
+        # Use appropriate model for the acquisition function
+        if use_cost:
+            acqf_model = self.model  # Use multi-output model for cost-aware methods
+        else:
+            acqf_model = self.single_outcome_model  # Use single-output model for cost-unaware methods
+        
+        acqf_args = {'model': acqf_model}
         
         if acquisition_function_class == "ThompsonSampling":
         
             # Draw sample path(s)
-            paths = draw_matheron_paths(model, sample_shape=torch.Size([1]))
+            paths = draw_matheron_paths(acqf_model, sample_shape=torch.Size([1]))
             
             # Optimize
             optimal_input, optimal_output = optimize_posterior_samples(paths=paths, bounds=self.bounds, maximize=self.maximize)
 
             is_ts = True
-            new_point = optimal_input
+            new_point = optimal_input.detach()
             self.current_acq = optimal_output.item()
         
         if acquisition_function_class in (GittinsIndex, StableGittinsIndex):
@@ -244,15 +280,17 @@ class BayesianOptimizer:
 
         if self.unknown_cost:
             new_value, new_cost = self.objective_cost(new_point.detach())
+            new_value = new_value.detach()
+            new_cost = new_cost.detach()
         else: 
-            new_value = self.objective(new_point.detach())
+            new_value = self.objective(new_point.detach()).detach()
 
         if self.noisy_observation:
             noise = torch.randn_like(new_value) * self.noise_level
             new_value += noise
 
-        self.x = torch.cat((self.x, new_point.detach()))
-        self.y = torch.cat((self.y, new_value.detach()))
+        self.x = torch.cat((self.x.detach(), new_point.detach())).detach()
+        self.y = torch.cat((self.y.detach(), new_value.detach())).detach()
         
         # Record statistics about different stopping rules
         # Only compute PRB if include_prb is True (defaults to False if not set)
@@ -302,7 +340,9 @@ class BayesianOptimizer:
         if func.__name__ == "update_stopping_criteria":
             crit = args[0]                                    # e.g. "PRB", "StablePBGI"
             if crit == "StablePBGI":
-                crit_key = f"StablePBGI({kwargs.get('lmbda', 0.01)})"
+                lmbda_val = kwargs.get('lmbda', 0.01)
+                # Format lmbda consistently: use decimal notation to match access pattern
+                crit_key = f"StablePBGI({lmbda_val:.10f}".rstrip('0').rstrip('.') + ')'
             elif crit == "PRB":                               # keep in sync with ε = 0.1
                 crit_key = "PRB_0.1"
             else:
@@ -349,7 +389,7 @@ class BayesianOptimizer:
         
             maximize_factor = 1 if self.maximize else -1
             if (self.dim == 1):
-                regrets = (maximize_factor*paths(candidates)).max(dim=1).values - maximize_factor*paths(self.best_x.unsqueeze(0)).squeeze(-1)
+                regrets = (maximize_factor*paths(candidates)).max(dim=1).values - maximize_factor*paths(self.best_x.detach().unsqueeze(0)).squeeze(-1)
             else:
                 # 1. build a QMC sampler that will internally draw your fantasy paths
                 _, optimum_values = optimize_posterior_samples(paths=paths, 
@@ -358,7 +398,7 @@ class BayesianOptimizer:
                                                                num_restarts=10*self.dim,
                                                                maximize=self.maximize)
                 # print("optimum_values:", optimum_values)
-                regrets = maximize_factor*optimum_values.squeeze(-1) - maximize_factor*paths(self.best_x.unsqueeze(0)).squeeze(-1)
+                regrets = maximize_factor*optimum_values.squeeze(-1) - maximize_factor*paths(self.best_x.detach().unsqueeze(0)).squeeze(-1)
                 # print("regrets:", regrets)
             
             prb_estimate = (regrets <= epsilon).float().mean().item()
@@ -370,7 +410,9 @@ class BayesianOptimizer:
  
         elif (stopping_criteria == "StablePBGI"):
             # 3. Stable PBGI
-            key = f'StablePBGI({lmbda})'
+            # Format lmbda consistently: use decimal notation to match access pattern
+            # Remove trailing zeros and use fixed format for consistency
+            key = f'StablePBGI({lmbda:.10f}'.rstrip('0').rstrip('.') + ')'
             self.if_not_exist_create_key(key) 
             StablePBGI = StableGittinsIndex(model=self.model, maximize=self.maximize, lmbda=lmbda, cost=self.cost, unknown_cost=self.unknown_cost)
             maximize_factor = 1 if self.maximize else -1
@@ -423,8 +465,8 @@ class BayesianOptimizer:
             key = f'UCB-LCB'
             self.if_not_exist_create_key(key) 
 
-            UCB = UpperConfidenceBound(model=self.model, maximize=self.maximize, beta=2 * np.log(self.dim * ((self.iteration + 1) ** 2) * (math.pi ** 2) / (6 * 0.1)) / 5)
-            LCB = LowerConfidenceBound(model=self.model, maximize=self.maximize, beta=2 * np.log(self.dim * ((self.iteration + 1) ** 2) * (math.pi ** 2) / (6 * 0.1)) / 5)
+            UCB = UpperConfidenceBound(model=self.single_outcome_model, maximize=self.maximize, beta=2 * np.log(self.dim * ((self.iteration + 1) ** 2) * (math.pi ** 2) / (6 * 0.1)) / 5)
+            LCB = LowerConfidenceBound(model=self.single_outcome_model, maximize=self.maximize, beta=2 * np.log(self.dim * ((self.iteration + 1) ** 2) * (math.pi ** 2) / (6 * 0.1)) / 5)
             if (self.maximize):
                 optimistic_CB = UCB; pessimistic_CB = LCB; maximize_factor = 1
             else:
@@ -432,7 +474,7 @@ class BayesianOptimizer:
             # print(f"beta: {beta}")
             if (self.dim == 1):
                 optimistic_acq = optimistic_CB.forward(candidates.unsqueeze(1))
-                pessimistic_acq = pessimistic_CB.forward(self.x.unsqueeze(1))
+                pessimistic_acq = pessimistic_CB.forward(self.x.detach().unsqueeze(1))
                 kappa = torch.max(maximize_factor*optimistic_acq) - torch.max(maximize_factor*pessimistic_acq)
             else:
                 candidates, optimistic_acq = optimize_acqf(
@@ -445,7 +487,7 @@ class BayesianOptimizer:
                     ) 
 
                 # print(candidates.shape)
-                pessimistic_acq = pessimistic_CB.forward(self.x.unsqueeze(1))
+                pessimistic_acq = pessimistic_CB.forward(self.x.detach().unsqueeze(1))
                 # print(f"UCB {UCB_acq} and LCB {torch.max(LCB_acq)}")
                 
                 kappa = maximize_factor*optimistic_acq - torch.max(maximize_factor*pessimistic_acq)
@@ -457,8 +499,8 @@ class BayesianOptimizer:
             key = f'Expected-Min-Regret-Gap'
             self.if_not_exist_create_key(key) 
             
-            UCB = UpperConfidenceBound(model=self.model, maximize=self.maximize, beta=2 * np.log(self.dim * ((self.iteration + 1) ** 2) * (math.pi ** 2) / (6 * 0.1)) / 5)
-            LCB = LowerConfidenceBound(model=self.model, maximize=self.maximize, beta=2 * np.log(self.dim * ((self.iteration + 1) ** 2) * (math.pi ** 2) / (6 * 0.1)) / 5)
+            UCB = UpperConfidenceBound(model=self.single_outcome_model, maximize=self.maximize, beta=2 * np.log(self.dim * ((self.iteration + 1) ** 2) * (math.pi ** 2) / (6 * 0.1)) / 5)
+            LCB = LowerConfidenceBound(model=self.single_outcome_model, maximize=self.maximize, beta=2 * np.log(self.dim * ((self.iteration + 1) ** 2) * (math.pi ** 2) / (6 * 0.1)) / 5)
             if (self.maximize):
                 optimistic_CB = UCB; pessimistic_CB = LCB; maximize_factor = 1
             else:
@@ -466,7 +508,7 @@ class BayesianOptimizer:
             # print(f"beta: {beta}")
             if (self.dim == 1):
                 optimistic_acq = optimistic_CB.forward(candidates.unsqueeze(1))
-                pessimistic_acq = pessimistic_CB.forward(self.x.unsqueeze(1))
+                pessimistic_acq = pessimistic_CB.forward(self.x.detach().unsqueeze(1))
                 kappa = torch.max(maximize_factor*optimistic_acq) - torch.max(maximize_factor*pessimistic_acq)
             else:
                 candidates, optimistic_acq = optimize_acqf(
@@ -479,7 +521,7 @@ class BayesianOptimizer:
                     ) 
 
                 # print(candidates.shape)
-                pessimistic_acq = pessimistic_CB.forward(self.x.unsqueeze(1))
+                pessimistic_acq = pessimistic_CB.forward(self.x.detach().unsqueeze(1))
                 # print(f"UCB {UCB_acq} and LCB {torch.max(LCB_acq)}")
                 
                 kappa = maximize_factor*optimistic_acq - torch.max(maximize_factor*pessimistic_acq)
@@ -488,15 +530,15 @@ class BayesianOptimizer:
             # 7.1. Get the posterior mean for old and new GPs at the new and old best points.
             # new_config_x and old_config_x should be the configurations corresponding to the current
             # and previous best indices, respectively.
-            x_pair = torch.stack([self.x[-1], self.x[-2]])
+            x_pair = torch.stack([self.x[-1].detach(), self.x[-2].detach()]).detach()
 
             # 7.2. Get posterior mean and covariance from the new model.
-            new_posterior = self.model.posterior(x_pair)
+            new_posterior = self.single_outcome_model.posterior(x_pair)
             new_mean = new_posterior.mean         # Shape: [2]
             new_covar = new_posterior.mvn.covariance_matrix     # Shape: [2, 2]
 
             # 7.3. Get posterior mean and covariance from the old model.
-            old_posterior = self.old_model.posterior(x_pair)
+            old_posterior = self.old_single_outcome_model.posterior(x_pair)
             old_mean = old_posterior.mean           # Shape: [2]
             old_covar = old_posterior.mvn.covariance_matrix       # Shape: [2, 2]
 
@@ -542,12 +584,13 @@ class BayesianOptimizer:
     def update_cost(self, new_point):
         if callable(self.cost):
             # If self.cost is a function, call it and update cumulative cost
-            new_cost = self.cost(new_point).view(-1)
-            self.c = torch.cat((self.c, new_cost))
+            new_cost = self.cost(new_point).view(-1).detach()
+            self.c = torch.cat((self.c.detach(), new_cost)).detach()
             self.cumulative_cost += new_cost.item()
         elif callable(self.objective_cost):
             new_value, new_cost = self.objective_cost(new_point)
-            self.c = torch.cat((self.c, new_cost))
+            new_cost = new_cost.detach()
+            self.c = torch.cat((self.c.detach(), new_cost)).detach()
             self.cumulative_cost += new_cost.sum().item()
         else:
             # If self.cost is not a function, just increment cumulative cost by self.cost
