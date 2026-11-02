@@ -5,7 +5,11 @@ Run with ``python3 -m unittest discover -s tests -p 'test_lcbench_full_stopping.
 """
 
 import json
+import contextlib
+import io
+import os
 from pathlib import Path
+import tempfile
 import unittest
 
 import numpy as np
@@ -89,6 +93,41 @@ class FullNotebookStoppingTests(unittest.TestCase):
         for name in ("LogEIPC-med", "SRGap-med"):
             with self.subTest(rule=name):
                 self.assertTrue(self.rules[name](21, 0, "toy", fa="LogEIPC"))
+
+    def test_immediate_uncertainty_counts_each_shared_seed_once(self):
+        notebook = json.loads(NOTEBOOK.read_text())
+        calculation = next(
+            "".join(cell.get("source", [])) for cell in notebook["cells"]
+            if "# Initialize cost_adjusted_regrets dictionary" in "".join(cell.get("source", []))
+        )
+        seed_values = np.array([1.0, 2.0, 4.0, 8.0])
+        expected_error = seed_values.std() / np.sqrt(len(seed_values))
+        for acquisitions in [["PBGI"], ["PBGI", "LogEIPC", "LCB", "TS"]]:
+            with self.subTest(acquisitions=acquisitions):
+                namespace = dict(self.namespace)
+                namespace.update(
+                    dataset_names=["toy"], lambdas=[1e-4], acq_order=acquisitions,
+                    best_acc_per_dataset={"toy": 100.0},
+                    stopping_rules=[r for r in self.namespace["stopping_rules"]
+                                    if r["acq_key"] == "PBGI(1e-4)" and r["stp_key"] == "Immediate"],
+                    metrics_per_acq={"toy": {
+                        ("PBGI(1e-4)" if a == "PBGI" else a): {
+                            "final test error": seed_values[:, None],
+                            "estimated cumulative cost": np.zeros((4, 1)),
+                        } for a in acquisitions
+                    }},
+                )
+                previous = Path.cwd()
+                try:
+                    with tempfile.TemporaryDirectory() as folder, contextlib.redirect_stdout(io.StringIO()):
+                        os.chdir(folder)
+                        exec(compile(calculation, str(NOTEBOOK), "exec"), namespace)
+                finally:
+                    os.chdir(previous)
+                for acquisition in acquisitions:
+                    key = ("1e-4", "toy", acquisition, "Immediate")
+                    self.assertAlmostEqual(namespace["cost_adjusted_regrets"][key], seed_values.mean())
+                    self.assertAlmostEqual(namespace["cost_adjusted_regrets"][key + ("std_err",)], expected_error)
 
 
 if __name__ == "__main__":
